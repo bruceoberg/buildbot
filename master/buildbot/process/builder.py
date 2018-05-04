@@ -33,9 +33,9 @@ from buildbot.process import workerforbuilder
 from buildbot.process.build import Build
 from buildbot.process.properties import Properties
 from buildbot.process.results import RETRY
-from buildbot.util import service as util_service
 from buildbot.util import bytes2unicode
 from buildbot.util import epoch2datetime
+from buildbot.util import service as util_service
 from buildbot.worker_transition import WorkerAPICompatMixin
 from buildbot.worker_transition import deprecatedWorkerClassMethod
 from buildbot.worker_transition import deprecatedWorkerModuleAttribute
@@ -375,6 +375,12 @@ class Builder(util_service.ReconfigurableServiceMixin,
                 props.setProperty(propertyname,
                                   self.config.properties[propertyname],
                                   "Builder")
+        if self.config.defaultProperties:
+            for propertyname in self.config.defaultProperties:
+                if propertyname not in props:
+                    props.setProperty(propertyname,
+                                      self.config.defaultProperties[propertyname],
+                                      "Builder")
 
     def buildFinished(self, build, wfb):
         """This is called when the Build has finished (either success or

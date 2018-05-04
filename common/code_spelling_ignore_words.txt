@@ -371,6 +371,7 @@ diff
 diffs
 dir
 directoryenterpattern
+directoryupload
 dirname
 dirs
 dirwatcher
@@ -537,6 +538,7 @@ getprocessoutputandvalue
 getprocessoutputandvaluewithinput
 getpwnam
 getrenderingfor
+getresponsibleusersforbuild
 getresults
 getrlimit
 getrootobject
@@ -1020,7 +1022,6 @@ radez
 raiseexpectationfailure
 ralph
 raml
-ramlfications
 rc
 reactorname
 readlines
@@ -1440,6 +1441,7 @@ urllib
 urlopen
 urlparse
 urls
+urltext
 usa
 usageerror
 usechange
