@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import os
 import platform
@@ -52,7 +49,7 @@ class TailProcess(protocol.ProcessProtocol):
         self.lw.dataReceived(data)
 
     def errReceived(self, data):
-        print("ERR: '%s'" % (data,))
+        print("ERR: '{}'".format(data))
 
 
 class LogWatcher(LineOnlyReceiver):
@@ -60,13 +57,15 @@ class LogWatcher(LineOnlyReceiver):
     TIMEOUT_DELAY = 10.0
     delimiter = unicode2bytes(os.linesep)
 
-    def __init__(self, logfile):
+    def __init__(self, logfile, timeout=None, _reactor=reactor):
         self.logfile = logfile
         self.in_reconfig = False
         self.transport = FakeTransport()
         self.pp = TailProcess()
         self.pp.lw = self
         self.timer = None
+        self._reactor = _reactor
+        self._timeout_delay = timeout or self.TIMEOUT_DELAY
 
     def start(self):
         # If the log file doesn't exist, create it now.
@@ -74,18 +73,18 @@ class LogWatcher(LineOnlyReceiver):
             open(self.logfile, 'a').close()
 
         # return a Deferred that fires when the reconfig process has
-        # finished. It errbacks with TimeoutError if the finish line has not
-        # been seen within 10 seconds, and with ReconfigError if the error
+        # finished. It errbacks with TimeoutError if the startup has not
+        # progressed for 10 seconds, and with ReconfigError if the error
         # line was seen. If the logfile could not be opened, it errbacks with
         # an IOError.
         if platform.system().lower() == 'sunos' and os.path.exists('/usr/xpg4/bin/tail'):
             tailBin = "/usr/xpg4/bin/tail"
         else:
             tailBin = "/usr/bin/tail"
-        self.p = reactor.spawnProcess(self.pp, tailBin,
-                                      ("tail", "-f", "-n", "0", self.logfile),
-                                      env=os.environ,
-                                      )
+
+        args = ("tail", "-f", "-n", "0", self.logfile)
+        self.p = self._reactor.spawnProcess(self.pp, tailBin, args,
+                                            env=os.environ)
         self.running = True
         d = defer.maybeDeferred(self._start)
         return d
@@ -96,7 +95,7 @@ class LogWatcher(LineOnlyReceiver):
         return self.d
 
     def startTimer(self):
-        self.timer = reactor.callLater(self.TIMEOUT_DELAY, self.timeout)
+        self.timer = self._reactor.callLater(self._timeout_delay, self.timeout)
 
     def timeout(self):
         # was the timeout set to be ignored? if so, restart it
@@ -122,19 +121,19 @@ class LogWatcher(LineOnlyReceiver):
 
     def lineReceived(self, line):
         if not self.running:
-            return
+            return None
         if b"Log opened." in line:
             self.in_reconfig = True
         if b"beginning configuration update" in line:
             self.in_reconfig = True
 
         if self.in_reconfig:
-            print(line)
+            print(line.decode())
 
         # certain lines indicate progress, so we "cancel" the timeout
         # and it will get re-added when it fires
-        PROGRESS_TEXT = [b'Starting BuildMaster', b'Loading configuration from',
-                         b'added builder', b'adding scheduler', b'Loading builder', b'Starting factory']
+        PROGRESS_TEXT = [b'Starting BuildMaster', b'Loading configuration from', b'added builder',
+                         b'adding scheduler', b'Loading builder', b'Starting factory']
         for progressText in PROGRESS_TEXT:
             if progressText in line:
                 self.timer = None
@@ -152,3 +151,4 @@ class LogWatcher(LineOnlyReceiver):
             return self.finished("buildmaster")
         if b"BuildMaster startup failed" in line:
             return self.finished(Failure(BuildmasterStartupError()))
+        return None

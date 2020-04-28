@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-
 from twisted.internet import defer
 from twisted.internet import reactor
 
@@ -25,7 +21,7 @@ from buildbot.process.buildstep import FAILURE
 from buildbot.process.buildstep import SUCCESS
 from buildbot.process.buildstep import BuildStep
 
-# use the 'requests' lib: http://python-requests.org
+# use the 'requests' lib: https://requests.readthedocs.io/en/master/
 try:
     import txrequests
     import requests
@@ -79,7 +75,7 @@ class HTTPStep(BuildStep):
                 "Need to install txrequest to use this step:\n\n pip install txrequests")
 
         if method not in ('POST', 'GET', 'PUT', 'DELETE', 'HEAD', 'OPTIONS'):
-            config.error("Wrong method given: '%s' is not known" % method)
+            config.error("Wrong method given: '{}' is not known".format(method))
 
         self.method = method
         self.url = url
@@ -87,7 +83,7 @@ class HTTPStep(BuildStep):
         for param in HTTPStep.requestsParams:
             setattr(self, param, kwargs.pop(param, None))
 
-        BuildStep.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
     def start(self):
         d = self.doRequest()
@@ -112,30 +108,28 @@ class HTTPStep(BuildStep):
 
         # known methods already tested in __init__
 
-        log.addHeader('Performing %s request to %s\n' %
-                      (self.method, self.url))
+        log.addHeader('Performing {} request to {}\n'.format(self.method, self.url))
         if self.params:
             log.addHeader('Parameters:\n')
             params = requestkwargs.get("params", {})
             if params:
-                params = sorted(iteritems(params), key=lambda x: x[0])
+                params = sorted(params.items(), key=lambda x: x[0])
                 requestkwargs['params'] = params
             for k, v in params:
-                log.addHeader('\t%s: %s\n' % (k, v))
+                log.addHeader('\t{}: {}\n'.format(k, v))
         data = requestkwargs.get("data", None)
         if data:
             log.addHeader('Data:\n')
             if isinstance(data, dict):
-                for k, v in iteritems(data):
-                    log.addHeader('\t%s: %s\n' % (k, v))
+                for k, v in data.items():
+                    log.addHeader('\t{}: {}\n'.format(k, v))
             else:
-                log.addHeader('\t%s\n' % data)
+                log.addHeader('\t{}\n'.format(data))
 
         try:
             r = yield self.session.request(**requestkwargs)
         except requests.exceptions.ConnectionError as e:
-            log.addStderr(
-                'An exception occurred while performing the request: %s' % e)
+            log.addStderr('An exception occurred while performing the request: {}'.format(e))
             self.finished(FAILURE)
             return
 
@@ -159,55 +153,55 @@ class HTTPStep(BuildStep):
         log = self.getLog('log')
 
         log.addHeader('Request Header:\n')
-        for k, v in iteritems(response.request.headers):
-            log.addHeader('\t%s: %s\n' % (k, v))
+        for k, v in response.request.headers.items():
+            log.addHeader('\t{}: {}\n'.format(k, v))
 
-        log.addStdout('URL: %s\n' % response.url)
+        log.addStdout('URL: {}\n'.format(response.url))
 
         if response.status_code == requests.codes.ok:
-            log.addStdout('Status: %s\n' % response.status_code)
+            log.addStdout('Status: {}\n'.format(response.status_code))
         else:
-            log.addStderr('Status: %s\n' % response.status_code)
+            log.addStderr('Status: {}\n'.format(response.status_code))
 
         log.addHeader('Response Header:\n')
-        for k, v in iteritems(response.headers):
-            log.addHeader('\t%s: %s\n' % (k, v))
+        for k, v in response.headers.items():
+            log.addHeader('\t{}: {}\n'.format(k, v))
 
-        log.addStdout(' ------ Content ------\n%s' % response.text)
+        log.addStdout(' ------ Content ------\n{}'.format(response.text))
         self.addLog('content').addStdout(response.text)
 
 
 class POST(HTTPStep):
 
     def __init__(self, url, **kwargs):
-        HTTPStep.__init__(self, url, method='POST', **kwargs)
+        super().__init__(url, method='POST', **kwargs)
 
 
 class GET(HTTPStep):
 
     def __init__(self, url, **kwargs):
-        HTTPStep.__init__(self, url, method='GET', **kwargs)
+        super().__init__(url, method='GET', **kwargs)
 
 
 class PUT(HTTPStep):
 
     def __init__(self, url, **kwargs):
-        HTTPStep.__init__(self, url, method='PUT', **kwargs)
+        super().__init__(url, method='PUT', **kwargs)
 
 
 class DELETE(HTTPStep):
 
     def __init__(self, url, **kwargs):
-        HTTPStep.__init__(self, url, method='DELETE', **kwargs)
+        super().__init__(url, method='DELETE', **kwargs)
 
 
 class HEAD(HTTPStep):
 
     def __init__(self, url, **kwargs):
-        HTTPStep.__init__(self, url, method='HEAD', **kwargs)
+        super().__init__(url, method='HEAD', **kwargs)
 
 
 class OPTIONS(HTTPStep):
 
     def __init__(self, url, **kwargs):
-        HTTPStep.__init__(self, url, method='OPTIONS', **kwargs)
+        super().__init__(url, method='OPTIONS', **kwargs)

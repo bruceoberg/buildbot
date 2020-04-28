@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import base64
 
@@ -60,6 +58,7 @@ class NotifierMaster(RunMasterBase):
         change = dict(branch="master",
                       files=["foo.c"],
                       author="author@foo.com",
+                      committer="me@foo.com",
                       comments="good stuff",
                       revision="HEAD",
                       project="none"
@@ -135,10 +134,11 @@ def masterConfig():
                       workernames=["local1"],
                       factory=f)
     ]
-    notifier = reporters.PushoverNotifier('1234', 'abcd', mode="all", watchedWorkers=['local1'],
-                                          messageFormatter=MessageFormatter(template='This is a message.'),
-                                          messageFormatterMissingWorker=MessageFormatterMissingWorker(
-                                              template='No worker.'))
+    notifier = reporters.PushoverNotifier(
+        '1234', 'abcd', mode="all", watchedWorkers=['local1'],
+        messageFormatter=MessageFormatter(template='This is a message.'),
+        messageFormatterMissingWorker=MessageFormatterMissingWorker(
+        template='No worker.'))
     c['services'] = [
         reporters.MailNotifier("bot@foo.com", mode="all"),
         notifier

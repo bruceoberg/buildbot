@@ -12,8 +12,6 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Copyright Buildbot Team Members
-from __future__ import absolute_import
-from __future__ import print_function
 
 import stat
 
@@ -39,17 +37,18 @@ class DownloadSecretsToWorker(BuildStep, CompositeStepMixin):
         result = SUCCESS
         for path, secretvalue in self.secret_to_be_populated:
             if not isinstance(path, str):
-                raise ValueError("Secret path %s is not a string" % path)
+                raise ValueError("Secret path {} is not a string".format(path))
             self.secret_to_be_interpolated = secretvalue
-            res = yield self.downloadFileContentToWorker(path, self.secret_to_be_interpolated, mode=stat.S_IRUSR | stat.S_IWUSR)
+            res = yield self.downloadFileContentToWorker(path, self.secret_to_be_interpolated,
+                                                         mode=stat.S_IRUSR | stat.S_IWUSR)
             result = worst_status(result, res)
-        defer.returnValue(result)
+        return result
 
     @defer.inlineCallbacks
     def run(self):
         self._start_deferred = None
         res = yield self.runPopulateSecrets()
-        defer.returnValue(res)
+        return res
 
 
 class RemoveWorkerFileSecret(BuildStep, CompositeStepMixin):
@@ -71,10 +70,10 @@ class RemoveWorkerFileSecret(BuildStep, CompositeStepMixin):
             result = FAILURE
         else:
             result = SUCCESS
-        defer.returnValue(result)
+        return result
 
     @defer.inlineCallbacks
     def run(self):
         self._start_deferred = None
         res = yield self.runRemoveWorkerFileSecret()
-        defer.returnValue(res)
+        return res

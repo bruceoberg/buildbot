@@ -16,8 +16,6 @@
 Source step code for Monotone
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 from twisted.internet import reactor
@@ -47,15 +45,15 @@ class Monotone(Source):
         self.method = method
         self.mode = mode
         self.branch = branch
-        self.sourcedata = "%s?%s" % (self.repourl, self.branch)
+        self.sourcedata = "{}?{}".format(self.repourl, self.branch)
         self.database = 'db.mtn'
         self.progress = progress
-        Source.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         errors = []
 
         if not self._hasAttrGroupMember('mode', self.mode):
-            errors.append("mode %s is not one of %s" %
-                          (self.mode, self._listAttrGroupMembers('mode')))
+            errors.append("mode {} is not one of {}".format(self.mode,
+                                                            self._listAttrGroupMembers('mode')))
         if self.mode == 'incremental' and self.method:
             errors.append("Incremental mode does not require method")
 
@@ -63,7 +61,7 @@ class Monotone(Source):
             if self.method is None:
                 self.method = 'copy'
             elif self.method not in self.possible_methods:
-                errors.append("Invalid method for mode == %s" % (self.mode))
+                errors.append("Invalid method for mode == {}".format(self.mode))
 
         if repourl is None:
             errors.append("you must provide repourl")
@@ -159,7 +157,7 @@ class Monotone(Source):
         yield self.runCommand(cmd)
 
         self.workdir = 'build'
-        defer.returnValue(0)
+        return 0
 
     @defer.inlineCallbacks
     def checkMonotone(self):
@@ -170,7 +168,7 @@ class Monotone(Source):
                                                timeout=self.timeout)
         cmd.useLog(self.stdio_log, False)
         yield self.runCommand(cmd)
-        defer.returnValue(cmd.rc == 0)
+        return cmd.rc == 0
 
     @defer.inlineCallbacks
     def clean(self, ignore_ignored=True):
@@ -204,9 +202,8 @@ class Monotone(Source):
         for filename in files:
             res = yield self.runRmdir(filename, abandonOnFailure=False)
             if res:
-                defer.returnValue(res)
-                return
-        defer.returnValue(0)
+                return res
+        return 0
 
     def _checkout(self, abandonOnFailure=False):
         command = ['mtn', 'checkout', self.workdir, '--db', self.database]
@@ -247,7 +244,7 @@ class Monotone(Source):
         if self.retry:
             delay, repeats = self.retry
             if self.stopped or res == 0 or repeats <= 0:
-                defer.returnValue(res)
+                return res
             else:
                 log.msg("Checkout failed, trying %d more times after %d seconds"
                         % (repeats, delay))
@@ -256,6 +253,7 @@ class Monotone(Source):
                 df.addCallback(lambda _: self._retryPull())
                 reactor.callLater(delay, df.callback, None)
                 yield df
+        return None
 
     @defer.inlineCallbacks
     def parseGotRevision(self):
@@ -265,9 +263,9 @@ class Monotone(Source):
         revision = stdout.strip()
         if len(revision) != 40:
             raise buildstep.BuildStepFailed()
-        log.msg("Got Monotone revision %s" % (revision, ))
+        log.msg("Got Monotone revision {}".format(revision))
         self.updateSourceProperty('got_revision', revision)
-        defer.returnValue(0)
+        return 0
 
     @defer.inlineCallbacks
     def _dovccmd(self, command, workdir,
@@ -289,12 +287,12 @@ class Monotone(Source):
         yield self.runCommand(cmd)
 
         if abandonOnFailure and cmd.didFail():
-            log.msg("Source step failed while running command %s" % cmd)
+            log.msg("Source step failed while running command {}".format(cmd))
             raise buildstep.BuildStepFailed()
         if collectStdout:
-            defer.returnValue(cmd.stdout)
+            return cmd.stdout
         else:
-            defer.returnValue(cmd.rc)
+            return cmd.rc
 
     @defer.inlineCallbacks
     def _checkDb(self):
@@ -341,10 +339,9 @@ class Monotone(Source):
         if not workdir_exists:
             log.msg("Workdir does not exist, falling back to a fresh clone")
 
-        defer.returnValue(workdir_exists)
+        return workdir_exists
 
     def finish(self):
         self.setStatus(self.cmd, 0)
-        log.msg("Closing log, sending result of the command %s " %
-                (self.cmd))
+        log.msg("Closing log, sending result of the command {} ".format(self.cmd))
         return self.finished(0)

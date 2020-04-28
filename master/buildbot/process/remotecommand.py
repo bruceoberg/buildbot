@@ -13,11 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-from future.utils import text_type
-
 from twisted.internet import defer
 from twisted.internet import error
 from twisted.python import log
@@ -32,15 +27,13 @@ from buildbot.process.results import FAILURE
 from buildbot.process.results import SUCCESS
 from buildbot.util.eventual import eventually
 from buildbot.worker.protocols import base
-from buildbot.worker_transition import WorkerAPICompatMixin
-from buildbot.worker_transition import reportDeprecatedWorkerNameUsage
 
 
 class RemoteException(Exception):
     pass
 
 
-class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
+class RemoteCommand(base.RemoteCommandImpl):
 
     # class-level unique identifier generator for command ids
     _commandCounter = 0
@@ -71,7 +64,6 @@ class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
         self.decodeRC = decodeRC
         self.conn = None
         self.worker = None
-        self._registerOldWorkerAttr("worker", name="buildslave")
         self.step = None
         self.builder_name = None
         self.commandID = None
@@ -83,7 +75,7 @@ class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
         self.loglock = defer.DeferredLock()
 
     def __repr__(self):
-        return "<RemoteCommand '%s' at %d>" % (self.remote_command, id(self))
+        return "<RemoteCommand '{}' at {}>".format(self.remote_command, id(self))
 
     def run(self, step, conn, builder_name):
         self.active = True
@@ -96,7 +88,7 @@ class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
         RemoteCommand._commandCounter += 1
         self.commandID = "%d" % cmd_id
 
-        log.msg("%s: RemoteCommand.run [%s]" % (self, self.commandID))
+        log.msg("{}: RemoteCommand.run [{}]".format(self, self.commandID))
         self.deferred = defer.Deferred()
 
         d = defer.maybeDeferred(self._start)
@@ -139,8 +131,16 @@ class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
                                          self.args)
         return d
 
+    @defer.inlineCallbacks
     def _finished(self, failure=None):
         self.active = False
+        # the rc is send asynchronously and there is a chance it is still in the callback queue
+        # when finished is received, we have to workaround in the master because worker might be
+        # older
+        timeout = 10
+        while self.rc is None and timeout > 0:
+            yield util.asyncSleep(.1)
+            timeout -= 1
         # call .remoteComplete. If it raises an exception, or returns the
         # Failure that we gave it, our self.deferred will be errbacked. If
         # it does not (either it ate the Failure or there the step finished
@@ -273,7 +273,7 @@ class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
             log_ = yield self._unwrap(self.logs[logname])
             yield log_.addStdout(data)
         else:
-            log.msg("%s.addToLog: no such log %s" % (self, logname))
+            log.msg("{}.addToLog: no such log {}".format(self, logname))
 
     @metrics.countMethod('RemoteCommand.remoteUpdate()')
     @defer.inlineCallbacks
@@ -284,8 +284,8 @@ class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
             return self.step.build.properties.cleanupTextFromSecrets(data)
 
         if self.debug:
-            for k, v in iteritems(update):
-                log.msg("Update[%s]: %s" % (k, v))
+            for k, v in update.items():
+                log.msg("Update[{}]: {}".format(k, v))
         if "stdout" in update:
             # 'stdout': data
             yield self.addStdout(cleanup(update['stdout']))
@@ -301,7 +301,7 @@ class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
             yield self.addToLog(logname, cleanup(data))
         if "rc" in update:
             rc = self.rc = update['rc']
-            log.msg("%s rc=%s" % (self, rc))
+            log.msg("{} rc={}".format(self, rc))
             yield self.addHeader("program finished with exit code %d\n" % rc)
         if "elapsed" in update:
             self._remoteElapsed = update['elapsed']
@@ -320,20 +320,21 @@ class RemoteCommand(base.RemoteCommandImpl, WorkerAPICompatMixin):
             delta = (util.now() - self._startTime) - self._remoteElapsed
             metrics.MetricTimeEvent.log("RemoteCommand.overhead", delta)
 
-        for name, loog in iteritems(self.logs):
+        for name, loog in self.logs.items():
             if self._closeWhenFinished[name]:
                 if maybeFailure:
                     loog = yield self._unwrap(loog)
-                    yield loog.addHeader("\nremoteFailed: %s" % maybeFailure)
+                    yield loog.addHeader("\nremoteFailed: {}".format(maybeFailure))
                 else:
-                    log.msg("closing log %s" % loog)
+                    log.msg("closing log {}".format(loog))
                 loog.finish()
         if maybeFailure:
             # workaround http://twistedmatrix.com/trac/ticket/5507
             # CopiedFailure cannot be raised back, this make debug difficult
             if isinstance(maybeFailure, pb.CopiedFailure):
-                maybeFailure.value = RemoteException("%s: %s\n%s" % (
-                    maybeFailure.type, maybeFailure.value, maybeFailure.traceback))
+                maybeFailure.value = RemoteException("{}: {}\n{}".format(maybeFailure.type,
+                                                                         maybeFailure.value,
+                                                                         maybeFailure.traceback))
                 maybeFailure.type = RemoteException
             maybeFailure.raiseException()
 
@@ -366,7 +367,7 @@ class RemoteShellCommand(RemoteCommand):
         if decodeRC is None:
             decodeRC = {0: SUCCESS}
         self.command = command  # stash .command, set it later
-        if isinstance(self.command, (text_type, bytes)):
+        if isinstance(self.command, (str, bytes)):
             # Single string command doesn't support obfuscation.
             self.fake_command = command
         else:
@@ -383,12 +384,6 @@ class RemoteShellCommand(RemoteCommand):
             # able to modify the original.
             env = env.copy()
 
-        if usePTY == 'slave-config':
-            reportDeprecatedWorkerNameUsage(
-                "'slave-config' value of 'usePTY' attribute is deprecated, "
-                "use None instead.")
-            usePTY = None
-
         args = {'workdir': workdir,
                 'env': env,
                 'want_stdout': want_stdout,
@@ -403,10 +398,10 @@ class RemoteShellCommand(RemoteCommand):
                 }
         if interruptSignal is not None:
             args['interruptSignal'] = interruptSignal
-        RemoteCommand.__init__(self, "shell", args, collectStdout=collectStdout,
-                               collectStderr=collectStderr,
-                               decodeRC=decodeRC,
-                               stdioLogName=stdioLogName)
+        super().__init__("shell", args, collectStdout=collectStdout,
+                         collectStderr=collectStderr,
+                         decodeRC=decodeRC,
+                         stdioLogName=stdioLogName)
 
     def _start(self):
         if self.args['usePTY'] is None:
@@ -426,10 +421,9 @@ class RemoteShellCommand(RemoteCommand):
                 self.args['dir'] = self.args['workdir']
             if self.step.workerVersionIsOlderThan("shell", "2.16"):
                 self.args.pop('sigtermTime', None)
-        what = "command '%s' in dir '%s'" % (self.fake_command,
-                                             self.args['workdir'])
+        what = "command '{}' in dir '{}'".format(self.fake_command, self.args['workdir'])
         log.msg(what)
-        return RemoteCommand._start(self)
+        return super()._start()
 
     def __repr__(self):
-        return "<RemoteShellCommand '%s'>" % repr(self.fake_command)
+        return "<RemoteShellCommand '{}'>".format(repr(self.fake_command))

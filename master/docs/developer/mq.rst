@@ -3,7 +3,7 @@
 Messaging and Queues
 ====================
 
-As of version 0.9.0, Buildbot uses a message-queueing structure to handle asynchronous notifications in a distributed fashion.
+Buildbot uses a message-queueing structure to handle asynchronous notifications in a distributed fashion.
 This avoids, for the most part, the need for each master to poll the database, allowing masters to react to events as they happen.
 
 Overview
@@ -108,6 +108,8 @@ For a filter to match a routing key, it must have the same length, and each elem
         Stop invoking the ``callback`` passed to :py:meth:`~MQConnector.startConsuming`.
         This method can be called multiple times for the same :py:class:`QueueRef` instance without harm.
 
+        This method potentially returns a Deferred.
+
         After the first call to this method has returned, the callback will not be invoked.
 
 Implementations
@@ -164,7 +166,7 @@ Wamp
     It is managed outside of the mq module as this protocol can also be reused for worker protocol.
     The connector support queuing of requests until the wamp connection is created, but do not support disconnection and reconnection.
     Reconnection will be supported as part of a next release of AutobahnPython (https://github.com/crossbario/autobahn-python/issues/295).
-    There is a chicken and egg problem at the buildbot initialization phasis, so the produce messages are actually not sent with deferred.
+    There is a chicken and egg problem at the buildbot initialization phases, so the produce messages are actually not sent with deferred.
 
 .. _queue-schema:
 

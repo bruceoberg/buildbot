@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import mock
 
 from twisted.internet import defer
@@ -24,28 +21,32 @@ from twisted.trial import unittest
 
 from buildbot.test.fake import fakemaster
 from buildbot.test.util import protocols as util_protocols
+from buildbot.test.util.misc import TestReactorMixin
 from buildbot.worker.protocols import base
 from buildbot.worker.protocols import pb
 
 
-class TestListener(unittest.TestCase):
+class TestListener(TestReactorMixin, unittest.TestCase):
 
     def setUp(self):
-        self.master = fakemaster.make_master()
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self)
 
+    @defer.inlineCallbacks
     def makeListener(self):
         listener = pb.Listener()
-        listener.setServiceParent(self.master)
+        yield listener.setServiceParent(self.master)
         return listener
 
+    @defer.inlineCallbacks
     def test_constructor(self):
-        listener = self.makeListener()
+        listener = yield self.makeListener()
         self.assertEqual(listener.master, self.master)
         self.assertEqual(listener._registrations, {})
 
     @defer.inlineCallbacks
     def test_updateRegistration_simple(self):
-        listener = self.makeListener()
+        listener = yield self.makeListener()
         reg = yield listener.updateRegistration('example', 'pass', 'tcp:1234')
         self.assertEqual(self.master.pbmanager._registrations,
                          [('tcp:1234', 'example', 'pass')])
@@ -54,7 +55,7 @@ class TestListener(unittest.TestCase):
 
     @defer.inlineCallbacks
     def test_updateRegistration_pass_changed(self):
-        listener = self.makeListener()
+        listener = yield self.makeListener()
         listener.updateRegistration('example', 'pass', 'tcp:1234')
         reg1 = yield listener.updateRegistration('example', 'pass1', 'tcp:1234')
         self.assertEqual(
@@ -64,7 +65,7 @@ class TestListener(unittest.TestCase):
 
     @defer.inlineCallbacks
     def test_updateRegistration_port_changed(self):
-        listener = self.makeListener()
+        listener = yield self.makeListener()
         listener.updateRegistration('example', 'pass', 'tcp:1234')
         reg1 = yield listener.updateRegistration('example', 'pass', 'tcp:4321')
         self.assertEqual(
@@ -74,7 +75,7 @@ class TestListener(unittest.TestCase):
 
     @defer.inlineCallbacks
     def test_getPerspective(self):
-        listener = self.makeListener()
+        listener = yield self.makeListener()
         worker = mock.Mock()
         worker.workername = 'test'
         mind = mock.Mock()
@@ -88,17 +89,19 @@ class TestListener(unittest.TestCase):
 
 
 class TestConnectionApi(util_protocols.ConnectionInterfaceTest,
-                        unittest.TestCase):
+                        TestReactorMixin, unittest.TestCase):
 
     def setUp(self):
-        self.master = fakemaster.make_master()
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self)
         self.conn = pb.Connection(self.master, mock.Mock(), mock.Mock())
 
 
-class TestConnection(unittest.TestCase):
+class TestConnection(TestReactorMixin, unittest.TestCase):
 
     def setUp(self):
-        self.master = fakemaster.make_master()
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self)
         self.mind = mock.Mock()
         self.worker = mock.Mock()
 
@@ -114,12 +117,18 @@ class TestConnection(unittest.TestCase):
         conn = pb.Connection(self.master, self.worker, self.mind)
         att = yield conn.attached(self.mind)
 
-        self.assertNotEqual(conn.keepalive_timer, None)
         self.worker.attached.assert_called_with(conn)
         self.assertEqual(att, conn)
 
-        conn.detached(self.mind)
+        self.reactor.pump([10] * 361)
+        self.mind.callRemote.assert_has_calls([
+            mock.call('print', message="keepalive")
+        ])
 
+        conn.detached(self.mind)
+        yield conn.waitShutdown()
+
+    @defer.inlineCallbacks
     def test_detached(self):
         conn = pb.Connection(self.master, self.worker, self.mind)
         conn.attached(self.mind)
@@ -127,6 +136,7 @@ class TestConnection(unittest.TestCase):
 
         self.assertEqual(conn.keepalive_timer, None)
         self.assertEqual(conn.mind, None)
+        yield conn.waitShutdown()
 
     def test_loseConnection(self):
         conn = pb.Connection(self.master, self.worker, self.mind)
@@ -152,6 +162,7 @@ class TestConnection(unittest.TestCase):
                 return defer.succeed({'x': 1, 'y': 2})
             if 'getVersion' in args:
                 return defer.succeed('TheVersion')
+            return None
 
         self.mind.callRemote.side_effect = side_effect
         conn = pb.Connection(self.master, self.worker, self.mind)
@@ -189,6 +200,7 @@ class TestConnection(unittest.TestCase):
                 return defer.succeed({'x': 1, 'y': 2})
             if 'getVersion' in args:
                 return defer.succeed('TheVersion')
+            return None
 
         self.mind.callRemote.side_effect = side_effect
         conn = pb.Connection(self.master, self.worker, self.mind)
@@ -224,6 +236,7 @@ class TestConnection(unittest.TestCase):
                 return defer.succeed({'x': 1, 'y': 2})
             if 'getVersion' in args:
                 return defer.succeed('TheVersion')
+            return None
 
         self.mind.callRemote.side_effect = side_effect
         conn = pb.Connection(self.master, self.worker, self.mind)
@@ -248,6 +261,7 @@ class TestConnection(unittest.TestCase):
                 return defer.succeed({'x': 1, 'y': 2})
             if 'getVersion' in args:
                 return defer.succeed('TheVersion')
+            return None
 
         self.mind.callRemote.side_effect = side_effect
         conn = pb.Connection(self.master, self.worker, self.mind)
@@ -265,7 +279,7 @@ class TestConnection(unittest.TestCase):
         # This should be real old worker...
         def side_effect(*args, **kwargs):
             if args[0] == 'print':
-                return
+                return None
             return defer.fail(twisted_pb.RemoteError(
                 'twisted.spread.flavors.NoSuchMethod', None, None))
 
@@ -319,9 +333,10 @@ class TestConnection(unittest.TestCase):
         self.assertIsInstance(callargs[1], pb.RemoteCommand)
         self.assertEqual(callargs[1].impl, RCInstance)
 
-    def test_doKeepalive(self):
+    @defer.inlineCallbacks
+    def test_do_keepalive(self):
         conn = pb.Connection(self.master, self.worker, self.mind)
-        conn.doKeepalive()
+        yield conn._do_keepalive()
 
         self.mind.callRemote.assert_called_with('print', message="keepalive")
 
@@ -344,14 +359,24 @@ class TestConnection(unittest.TestCase):
 
         builders['builder'].callRemote.assert_called_with('startBuild')
 
+    @defer.inlineCallbacks
     def test_startStopKeepaliveTimer(self):
         conn = pb.Connection(self.master, self.worker, self.mind)
-
         conn.startKeepaliveTimer()
-        self.assertNotEqual(conn.keepalive_timer, None)
+
+        self.mind.callRemote.assert_not_called()
+        self.reactor.pump([10] * 361)
+        self.mind.callRemote.assert_has_calls([
+            mock.call('print', message="keepalive")
+        ])
+        self.reactor.pump([10] * 361)
+        self.mind.callRemote.assert_has_calls([
+            mock.call('print', message="keepalive"),
+            mock.call('print', message="keepalive"),
+        ])
 
         conn.stopKeepaliveTimer()
-        self.assertEqual(conn.keepalive_timer, None)
+        yield conn.waitShutdown()
 
     def test_perspective_shutdown(self):
         conn = pb.Connection(self.master, self.worker, self.mind)
@@ -375,7 +400,8 @@ class Test_wrapRemoteException(unittest.TestCase):
                 raise twisted_pb.RemoteError(
                     'twisted.spread.flavors.NoSuchMethod', None, None)
 
-        self.assertRaises(pb._NoSuchMethod, f)
+        with self.assertRaises(pb._NoSuchMethod):
+            f()
 
     def test_raises_unknown(self):
         class Error(Exception):
@@ -385,7 +411,8 @@ class Test_wrapRemoteException(unittest.TestCase):
             with pb._wrapRemoteException():
                 raise Error()
 
-        self.assertRaises(Error, f)
+        with self.assertRaises(Error):
+            f()
 
     def test_raises_RemoteError(self):
         def f():
@@ -393,4 +420,5 @@ class Test_wrapRemoteException(unittest.TestCase):
                 raise twisted_pb.RemoteError(
                     'twisted.spread.flavors.ProtocolError', None, None)
 
-        self.assertRaises(twisted_pb.RemoteError, f)
+        with self.assertRaises(twisted_pb.RemoteError):
+            f()

@@ -13,21 +13,19 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import mock
 
 from twisted.internet import defer
-from twisted.internet import reactor
 from twisted.trial import unittest
 
 from buildbot.data import builds
 from buildbot.data import resultspec
-from buildbot.test.fake import fakedb
+from buildbot.test import fakedb
 from buildbot.test.fake import fakemaster
 from buildbot.test.util import endpoint
 from buildbot.test.util import interfaces
+from buildbot.test.util.misc import TestReactorMixin
 from buildbot.util import epoch2datetime
 
 
@@ -116,7 +114,8 @@ class BuildEndpoint(endpoint.EndpointMixin, unittest.TestCase):
     @defer.inlineCallbacks
     def test_action_rebuild(self):
         self.patch(self.master.data.updates, "rebuildBuildrequest",
-                   mock.Mock(spec=self.master.data.updates.rebuildBuildrequest, return_value=(1, [2])))
+                   mock.Mock(spec=self.master.data.updates.rebuildBuildrequest,
+                             return_value=(1, [2])))
         r = yield self.callControl("rebuild", {}, ('builders', 77, 'builds', 5))
         self.assertEqual(r, (1, [2]))
 
@@ -252,7 +251,7 @@ class BuildsEndpoint(endpoint.EndpointMixin, unittest.TestCase):
         self.assertEqual(sorted([b['number'] for b in builds]), [3, 4])
 
 
-class Build(interfaces.InterfaceTests, unittest.TestCase):
+class Build(interfaces.InterfaceTests, TestReactorMixin, unittest.TestCase):
     new_build_event = {'builderid': 10,
                        'buildid': 100,
                        'buildrequestid': 13,
@@ -263,12 +262,13 @@ class Build(interfaces.InterfaceTests, unittest.TestCase):
                        'number': 1,
                        'results': None,
                        'started_at': epoch2datetime(1),
-                       'state_string': u'created',
+                       'state_string': 'created',
                        'properties': {}}
 
     def setUp(self):
-        self.master = fakemaster.make_master(testcase=self,
-                                             wantMq=True, wantDb=True, wantData=True)
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self, wantMq=True, wantDb=True,
+                                             wantData=True)
         self.rtype = builds.Build(self.master)
 
     @defer.inlineCallbacks
@@ -284,9 +284,9 @@ class Build(interfaces.InterfaceTests, unittest.TestCase):
     @defer.inlineCallbacks
     def do_test_event(self, method, exp_events=None,
                       *args, **kwargs):
+        self.reactor.advance(1)
         if exp_events is None:
-                exp_events = []
-        self.patch(reactor, "seconds", lambda: 1)
+            exp_events = []
         yield method(*args, **kwargs)
         self.master.mq.assertProductions(exp_events)
 
@@ -302,7 +302,7 @@ class Build(interfaces.InterfaceTests, unittest.TestCase):
                                         builderid=10, buildrequestid=13, workerid=20,
                                         exp_kwargs=dict(builderid=10, buildrequestid=13,
                                                         workerid=20, masterid=self.master.masterid,
-                                                        state_string=u'created'))
+                                                        state_string='created'))
 
     def test_newBuildEvent(self):
 
@@ -310,14 +310,16 @@ class Build(interfaces.InterfaceTests, unittest.TestCase):
         def addBuild(*args, **kwargs):
             buildid, _ = yield self.rtype.addBuild(*args, **kwargs)
             yield self.rtype.generateNewBuildEvent(buildid)
-            defer.returnValue(None)
+            return None
 
         return self.do_test_event(addBuild,
                                   builderid=10, buildrequestid=13, workerid=20,
-                                  exp_events=[(('builders', '10', 'builds', '1', 'new'), self.new_build_event),
+                                  exp_events=[(('builders', '10', 'builds', '1', 'new'),
+                                               self.new_build_event),
                                               (('builds', '100', 'new'),
                                                self.new_build_event),
-                                              (('workers', '20', 'builds', '100', 'new'), self.new_build_event)])
+                                              (('workers', '20', 'builds', '100', 'new'),
+                                               self.new_build_event)])
 
     def test_signature_setBuildStateString(self):
         @self.assertArgSpecMatches(
@@ -329,7 +331,7 @@ class Build(interfaces.InterfaceTests, unittest.TestCase):
     def test_setBuildStateString(self):
         return self.do_test_callthrough('setBuildStateString',
                                         self.rtype.setBuildStateString,
-                                        buildid=10, state_string=u'a b')
+                                        buildid=10, state_string='a b')
 
     def test_signature_finishBuild(self):
         @self.assertArgSpecMatches(

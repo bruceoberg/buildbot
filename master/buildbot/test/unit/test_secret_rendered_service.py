@@ -1,6 +1,3 @@
-from __future__ import absolute_import
-from __future__ import print_function
-
 from twisted.internet import defer
 from twisted.trial import unittest
 
@@ -8,6 +5,7 @@ from buildbot.process.properties import Secret
 from buildbot.secrets.manager import SecretManager
 from buildbot.test.fake import fakemaster
 from buildbot.test.fake.secrets import FakeSecretStorage
+from buildbot.test.util.misc import TestReactorMixin
 from buildbot.util.service import BuildbotService
 
 
@@ -28,18 +26,20 @@ class FakeServiceUsingSecrets(BuildbotService):
             raise Exception
 
 
-class TestRenderSecrets(unittest.TestCase):
+class TestRenderSecrets(TestReactorMixin, unittest.TestCase):
 
+    @defer.inlineCallbacks
     def setUp(self):
-        self.master = fakemaster.make_master()
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self)
         fakeStorageService = FakeSecretStorage(secretdict={"foo": "bar",
                                                        "other": "value"})
         self.secretsrv = SecretManager()
         self.secretsrv.services = [fakeStorageService]
-        self.secretsrv.setServiceParent(self.master)
+        yield self.secretsrv.setServiceParent(self.master)
         self.srvtest = FakeServiceUsingSecrets()
-        self.srvtest.setServiceParent(self.master)
-        self.successResultOf(self.master.startService())
+        yield self.srvtest.setServiceParent(self.master)
+        yield self.master.startService()
 
     @defer.inlineCallbacks
     def tearDown(self):
@@ -56,4 +56,5 @@ class TestRenderSecrets(unittest.TestCase):
     def test_secret_rendered_not_found(self):
         new = FakeServiceUsingSecrets(foo=Secret("foo"))
         yield self.srvtest.reconfigServiceWithSibling(new)
-        self.assertRaises(Exception, self.srvtest.returnRenderedSecrets, "more")
+        with self.assertRaises(Exception):
+            self.srvtest.returnRenderedSecrets("more")

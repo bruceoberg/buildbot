@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import json
 
 import mock
@@ -26,12 +23,16 @@ from twisted.python import util
 from twisted.trial import unittest
 
 from buildbot.test.util import www
-from buildbot.util import bytes2NativeString
+from buildbot.test.util.misc import TestReactorMixin
+from buildbot.util import bytes2unicode
 from buildbot.www import auth
 from buildbot.www import config
 
 
-class IndexResource(www.WwwTestMixin, unittest.TestCase):
+class IndexResource(TestReactorMixin, www.WwwTestMixin, unittest.TestCase):
+
+    def setUp(self):
+        self.setUpTestReactor()
 
     @defer.inlineCallbacks
     def test_render(self):
@@ -54,37 +55,64 @@ class IndexResource(www.WwwTestMixin, unittest.TestCase):
                  for v in rsrc.getEnvironmentVersions()] + custom_versions
 
         res = yield self.render_resource(rsrc, b'/')
-        res = json.loads(bytes2NativeString(res))
+        res = json.loads(bytes2unicode(res))
         _auth.maybeAutoLogin.assert_called_with(mock.ANY)
-        exp = {"authz": {}, "titleURL": "http://buildbot.net", "versions": vjson, "title": "Buildbot", "auth": {
-            "name": "NoAuth"}, "user": {"anonymous": True}, "buildbotURL": "h:/a/b/", "multiMaster": False, "port": None}
+        exp = {
+            "authz": {},
+            "titleURL": "http://buildbot.net",
+            "versions": vjson,
+            "title": "Buildbot",
+            "auth": {"name": "NoAuth"},
+            "user": {"anonymous": True},
+            "buildbotURL": "h:/a/b/",
+            "multiMaster": False,
+            "port": None
+        }
         self.assertEqual(res, exp)
 
         master.session.user_info = dict(name="me", email="me@me.org")
         res = yield self.render_resource(rsrc, b'/')
-        res = json.loads(bytes2NativeString(res))
-        exp = {"authz": {}, "titleURL": "http://buildbot.net", "versions": vjson, "title": "Buildbot", "auth": {"name": "NoAuth"},
-               "user": {"email": "me@me.org", "name": "me"}, "buildbotURL": "h:/a/b/", "multiMaster": False, "port": None}
+        res = json.loads(bytes2unicode(res))
+        exp = {
+            "authz": {},
+            "titleURL": "http://buildbot.net",
+            "versions": vjson,
+            "title": "Buildbot",
+            "auth": {"name": "NoAuth"},
+            "user": {"email": "me@me.org", "name": "me"},
+            "buildbotURL": "h:/a/b/",
+            "multiMaster": False,
+            "port": None
+        }
         self.assertEqual(res, exp)
 
         master = self.make_master(
             url='h:/a/c/', auth=_auth, versions=custom_versions)
         rsrc.reconfigResource(master.config)
         res = yield self.render_resource(rsrc, b'/')
-        res = json.loads(bytes2NativeString(res))
-        exp = {"authz": {}, "titleURL": "http://buildbot.net", "versions": vjson, "title": "Buildbot", "auth": {
-            "name": "NoAuth"}, "user": {"anonymous": True}, "buildbotURL": "h:/a/b/", "multiMaster": False, "port": None}
+        res = json.loads(bytes2unicode(res))
+        exp = {
+            "authz": {},
+            "titleURL": "http://buildbot.net",
+            "versions": vjson,
+            "title": "Buildbot",
+            "auth": {"name": "NoAuth"},
+            "user": {"anonymous": True},
+            "buildbotURL": "h:/a/b/",
+            "multiMaster": False,
+            "port": None
+        }
         self.assertEqual(res, exp)
 
     def test_parseCustomTemplateDir(self):
-        exp = {'views/builds.html': json.dumps('<div>\n</div>')}
+        exp = {'views/builds.html': '<div>\n</div>'}
         try:
             # we make the test work if pyjade is present or note
             # It is better than just skip if pyjade is not there
-            import pyjade
+            import pyjade  # pylint: disable=import-outside-toplevel
             [pyjade]
             exp.update({'plugin/views/plugin.html':
-                        json.dumps(u'<div class="myclass"><pre>this is customized</pre></div>')})
+                        '<div class="myclass"><pre>this is customized</pre></div>'})
         except ImportError:
             log.msg("Only testing html based template override")
         template_dir = util.sibpath(__file__, "test_templates_dir")

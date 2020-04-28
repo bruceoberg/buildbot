@@ -13,16 +13,15 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import inspect
+import sqlite3
 import time
 import traceback
 
 import sqlalchemy as sa
 
+from twisted.internet import defer
 from twisted.internet import threads
 from twisted.python import log
 from twisted.python import threadpool
@@ -61,20 +60,20 @@ def timed_do_fn(f):
         descr = "%s-%08x" % (name, id)
 
         start_time = time.time()
-        log.msg("%s - before ('%s' line %d)" % (descr, file, line))
+        log.msg("{} - before ('{}' line {})".format(descr, file, line))
         for name in locals:
             if name in ('self', 'thd'):
                 continue
-            log.msg("%s -   %s = %r" % (descr, name, locals[name]))
+            log.msg("{} - {} = {}".format(descr, name, repr(locals[name])))
 
         # wrap the callable to log the begin and end of the actual thread
         # function
         def callable_wrap(*args, **kargs):
-            log.msg("%s - thd start" % (descr,))
+            log.msg("{} - thd start".format(descr))
             try:
                 return callable(*args, **kwargs)
             finally:
-                log.msg("%s - thd end" % (descr,))
+                log.msg("{} - thd end".format(descr))
         d = f(callable_wrap, *args, **kwargs)
 
         @d.addBoth
@@ -89,7 +88,7 @@ def timed_do_fn(f):
     return wrap
 
 
-class DBThreadPool(object):
+class DBThreadPool:
 
     running = False
 
@@ -121,7 +120,7 @@ class DBThreadPool(object):
         if engine.dialect.name == 'sqlite':
             vers = self.get_sqlite_version()
             if vers < (3, 7):
-                log_msg("Using SQLite Version %s" % (vers,))
+                log_msg("Using SQLite Version {}".format(vers))
                 log_msg("NOTE: this old version of SQLite does not support "
                         "WAL journal mode; a busy master may encounter "
                         "'Database is locked' errors.  Consider upgrading.")
@@ -141,16 +140,23 @@ class DBThreadPool(object):
         if not self.running:
             self._pool.start()
             self._stop_evt = self.reactor.addSystemEventTrigger(
-                'during', 'shutdown', self._stop)
+                'during', 'shutdown', self._stop_nowait)
             self.running = True
 
-    def _stop(self):
+    def _stop_nowait(self):
         self._stop_evt = None
-        threads.deferToThreadPool(
-            self.reactor, self._pool, self.engine.dispose)
+        threads.deferToThreadPool(self.reactor, self._pool, self.engine.dispose)
         self._pool.stop()
         self.running = False
 
+    @defer.inlineCallbacks
+    def _stop(self):
+        self._stop_evt = None
+        yield threads.deferToThreadPool(self.reactor, self._pool, self.engine.dispose)
+        self._pool.stop()
+        self.running = False
+
+    @defer.inlineCallbacks
     def shutdown(self):
         """Manually stop the pool.  This is only necessary from tests, as the
         pool will stop itself when the reactor stops under normal
@@ -158,7 +164,7 @@ class DBThreadPool(object):
         if not self._stop_evt:
             return  # pool is already stopped
         self.reactor.removeSystemEventTrigger(self._stop_evt)
-        self._stop()
+        yield self._stop()
 
     # Try about 170 times over the space of a day, with the last few tries
     # being about an hour apart.  This is designed to span a reasonable amount
@@ -178,7 +184,7 @@ class DBThreadPool(object):
             if with_engine:
                 arg = self.engine
             else:
-                arg = self.engine.contextual_connect()
+                arg = self.engine.connect()
             try:
                 try:
                     rv = callable(arg, *args, **kwargs)
@@ -202,12 +208,13 @@ class DBThreadPool(object):
                     # and re-try
                     log.err(e, 'retrying {} after sql error {}'.format(callable, e))
                     continue
-                # AlreadyClaimedError are normal especially in a multimaster
-                # configuration
-                except (AlreadyClaimedError, ChangeSourceAlreadyClaimedError, SchedulerAlreadyClaimedError, AlreadyCompleteError):
-                    raise
                 except Exception as e:
-                    log.err(e, 'Got fatal Exception on DB')
+                    # AlreadyClaimedError are normal especially in a multimaster
+                    # configuration
+                    if not isinstance(e,
+                        (AlreadyClaimedError, ChangeSourceAlreadyClaimedError,
+                         SchedulerAlreadyClaimedError, AlreadyCompleteError)):
+                        log.err(e, 'Got fatal Exception on DB')
                     raise
             finally:
                 if not with_engine:
@@ -215,14 +222,19 @@ class DBThreadPool(object):
             break
         return rv
 
+    @defer.inlineCallbacks
     def do(self, callable, *args, **kwargs):
-        return threads.deferToThreadPool(self.reactor, self._pool,
-                                         self.__thd, False, callable, args, kwargs)
+        ret = yield threads.deferToThreadPool(self.reactor, self._pool,
+                                              self.__thd, False, callable,
+                                              args, kwargs)
+        return ret
 
+    @defer.inlineCallbacks
     def do_with_engine(self, callable, *args, **kwargs):
-        return threads.deferToThreadPool(self.reactor, self._pool,
-                                         self.__thd, True, callable, args, kwargs)
+        ret = yield threads.deferToThreadPool(self.reactor, self._pool,
+                                              self.__thd, True, callable,
+                                              args, kwargs)
+        return ret
 
     def get_sqlite_version(self):
-        import sqlite3
         return sqlite3.sqlite_version_info

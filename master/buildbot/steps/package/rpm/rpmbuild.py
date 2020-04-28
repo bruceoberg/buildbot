@@ -15,10 +15,6 @@
 # Portions Copyright Dan Radez <dradez+buildbot@redhat.com>
 # Portions Copyright Steve 'Ashcrow' Milner <smilner+buildbot@redhat.com>
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-
 import os
 
 from buildbot import config
@@ -49,6 +45,7 @@ class RpmBuild(ShellCommand):
                  specdir='`pwd`',
                  srcrpmdir='`pwd`',
                  dist='.el6',
+                 define=None,
                  autoRelease=False,
                  vcsRevision=False,
                  **kwargs):
@@ -71,21 +68,28 @@ class RpmBuild(ShellCommand):
         @param srcrpmdir: define the _srcrpmdir rpm parameter
         @type dist: str
         @param dist: define the dist string.
+        @type define: dict
+        @param define: additional parameters to define
         @type autoRelease: boolean
         @param autoRelease: Use auto incrementing release numbers.
         @type vcsRevision: boolean
         @param vcsRevision: Use vcs version number as revision number.
         """
-        ShellCommand.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
         self.dist = dist
 
         self.base_rpmbuild = (
-            'rpmbuild --define "_topdir %s" --define "_builddir %s"'
-            ' --define "_rpmdir %s" --define "_sourcedir %s"'
-            ' --define "_specdir %s" --define "_srcrpmdir %s"'
-            % (topdir, builddir, rpmdir, sourcedir, specdir,
-               srcrpmdir))
+            ('rpmbuild --define "_topdir {}" --define "_builddir {}"'
+             ' --define "_rpmdir {}" --define "_sourcedir {}"'
+             ' --define "_specdir {}" --define "_srcrpmdir {}"').format(topdir, builddir, rpmdir,
+                                                                        sourcedir, specdir,
+                                                                        srcrpmdir))
+
+        if define is None:
+            define = {}
+        for k, v in define.items():
+            self.base_rpmbuild += " --define \"{} {}\"".format(k, v)
 
         self.specfile = specfile
         self.autoRelease = autoRelease
@@ -103,8 +107,7 @@ class RpmBuild(ShellCommand):
         rpm_extras_dict['dist'] = self.dist
 
         if self.autoRelease:
-            relfile = '%s.release' % (
-                os.path.basename(self.specfile).split('.')[0])
+            relfile = '{}.release'.format(os.path.basename(self.specfile).split('.')[0])
             try:
                 with open(relfile, 'r') as rfile:
                     rel = int(rfile.readline().strip())
@@ -124,7 +127,7 @@ class RpmBuild(ShellCommand):
 
         # The unit tests expect a certain order, so we sort the dict to keep
         # format the same every time
-        for k, v in sorted(iteritems(rpm_extras_dict)):
+        for k, v in sorted(rpm_extras_dict.items()):
             self.rpmbuild = '{0} --define "{1} {2}"'.format(
                 self.rpmbuild, k, v)
 

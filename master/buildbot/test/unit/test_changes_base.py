@@ -13,22 +13,20 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import mock
 
 from twisted.internet import defer
-from twisted.internet import reactor
-from twisted.internet import task
 from twisted.trial import unittest
 
 from buildbot.changes import base
+from buildbot.config import ConfigErrors
 from buildbot.test.util import changesource
+from buildbot.test.util.misc import TestReactorMixin
 
 
-class TestChangeSource(changesource.ChangeSourceMixin, unittest.TestCase):
+class TestChangeSource(changesource.ChangeSourceMixin,
+                       TestReactorMixin,
+                       unittest.TestCase):
     timeout = 120
 
     class Subclass(base.ChangeSource):
@@ -36,6 +34,7 @@ class TestChangeSource(changesource.ChangeSourceMixin, unittest.TestCase):
 
     @defer.inlineCallbacks
     def setUp(self):
+        self.setUpTestReactor()
         yield self.setUpChangeSource()
 
     def tearDown(self):
@@ -77,36 +76,33 @@ class TestChangeSource(changesource.ChangeSourceMixin, unittest.TestCase):
         self.assertFalse(cs.active)
 
 
-class TestPollingChangeSource(changesource.ChangeSourceMixin, unittest.TestCase):
+class TestPollingChangeSource(changesource.ChangeSourceMixin,
+                              TestReactorMixin,
+                              unittest.TestCase):
     timeout = 120
 
     class Subclass(base.PollingChangeSource):
         pass
 
+    @defer.inlineCallbacks
     def setUp(self):
-        # patch in a Clock so we can manipulate the reactor's time
-        self.clock = task.Clock()
-        self.patch(reactor, 'callLater', self.clock.callLater)
-        self.patch(reactor, 'seconds', self.clock.seconds)
+        self.setUpTestReactor()
+        yield self.setUpChangeSource()
 
-        d = self.setUpChangeSource()
-
-        @d.addCallback
-        def create_changesource(_):
-            self.attachChangeSource(self.Subclass(name="DummyCS"))
-        return d
+        self.attachChangeSource(self.Subclass(name="DummyCS"))
 
     def tearDown(self):
         return self.tearDownChangeSource()
 
+    @defer.inlineCallbacks
     def runClockFor(self, _, secs):
-        self.clock.pump([1.0] * secs)
+        yield self.reactor.pump([1.0] * secs)
 
     def test_loop_loops(self):
         # track when poll() gets called
         loops = []
         self.changesource.poll = \
-            lambda: loops.append(self.clock.seconds())
+            lambda: loops.append(self.reactor.seconds())
 
         self.changesource.pollInterval = 5
         self.startChangeSource()
@@ -117,7 +113,7 @@ class TestPollingChangeSource(changesource.ChangeSourceMixin, unittest.TestCase)
         def check(_):
             # note that it does *not* poll at time 0
             self.assertEqual(loops, [5.0, 10.0])
-        reactor.callWhenRunning(d.callback, None)
+        self.reactor.callWhenRunning(d.callback, None)
         return d
 
     def test_loop_exception(self):
@@ -125,7 +121,7 @@ class TestPollingChangeSource(changesource.ChangeSourceMixin, unittest.TestCase)
         loops = []
 
         def poll():
-            loops.append(self.clock.seconds())
+            loops.append(self.reactor.seconds())
             raise RuntimeError("oh noes")
         self.changesource.poll = poll
 
@@ -140,7 +136,7 @@ class TestPollingChangeSource(changesource.ChangeSourceMixin, unittest.TestCase)
             # note that it keeps looping after error
             self.assertEqual(loops, [5.0, 10.0])
             self.assertEqual(len(self.flushLoggedErrors(RuntimeError)), 2)
-        reactor.callWhenRunning(d.callback, None)
+        self.reactor.callWhenRunning(d.callback, None)
         return d
 
     def test_poll_only_if_activated(self):
@@ -150,7 +146,7 @@ class TestPollingChangeSource(changesource.ChangeSourceMixin, unittest.TestCase)
 
         loops = []
         self.changesource.poll = \
-            lambda: loops.append(self.clock.seconds())
+            lambda: loops.append(self.reactor.seconds())
 
         self.changesource.pollInterval = 5
         self.startChangeSource()
@@ -163,14 +159,14 @@ class TestPollingChangeSource(changesource.ChangeSourceMixin, unittest.TestCase)
             # it doesn't do anything because it was already claimed
             self.assertEqual(loops, [])
 
-        reactor.callWhenRunning(d.callback, None)
+        self.reactor.callWhenRunning(d.callback, None)
         return d
 
     def test_pollAtLaunch(self):
         # track when poll() gets called
         loops = []
         self.changesource.poll = \
-            lambda: loops.append(self.clock.seconds())
+            lambda: loops.append(self.reactor.seconds())
 
         self.changesource.pollInterval = 5
         self.changesource.pollAtLaunch = True
@@ -183,40 +179,82 @@ class TestPollingChangeSource(changesource.ChangeSourceMixin, unittest.TestCase)
         def check(_):
             # note that it *does* poll at time 0
             self.assertEqual(loops, [0.0, 5.0, 10.0])
-        reactor.callWhenRunning(d.callback, None)
+        self.reactor.callWhenRunning(d.callback, None)
         return d
 
 
-class TestReconfigurablePollingChangeSource(changesource.ChangeSourceMixin, unittest.TestCase):
+class TestReconfigurablePollingChangeSource(changesource.ChangeSourceMixin,
+                                            TestReactorMixin,
+                                            unittest.TestCase):
 
     class Subclass(base.ReconfigurablePollingChangeSource):
         pass
 
+    @defer.inlineCallbacks
     def setUp(self):
-        # patch in a Clock so we can manipulate the reactor's time
-        self.clock = task.Clock()
-        self.patch(reactor, 'callLater', self.clock.callLater)
-        self.patch(reactor, 'seconds', self.clock.seconds)
+        self.setUpTestReactor()
 
-        d = self.setUpChangeSource()
+        yield self.setUpChangeSource()
 
-        @d.addCallback
-        def create_changesource(_):
-            self.attachChangeSource(self.Subclass(name="DummyCS"))
-        return d
+        self.attachChangeSource(self.Subclass(name="DummyCS"))
 
     def tearDown(self):
         return self.tearDownChangeSource()
 
+    @defer.inlineCallbacks
     def runClockFor(self, secs):
-        self.clock.pump([1.0] * secs)
+        yield self.reactor.pump([1.0] * secs)
+
+    @defer.inlineCallbacks
+    def test_config_negative_interval(self):
+        try:
+            yield self.changesource.reconfigServiceWithSibling(self.Subclass(
+                name="NegativePollInterval", pollInterval=-1, pollAtLaunch=False))
+        except ConfigErrors as e:
+            self.assertEqual("interval must be >= 0: -1", e.errors[0])
+
+    @defer.inlineCallbacks
+    def test_config_negative_random_delay_min(self):
+        try:
+            yield self.changesource.reconfigServiceWithSibling(
+                self.Subclass(name="NegativePollRandomDelayMin", pollInterval=1,
+                              pollAtLaunch=False, pollRandomDelayMin=-1, pollRandomDelayMax=1))
+        except ConfigErrors as e:
+            self.assertEqual("min random delay must be >= 0: -1", e.errors[0])
+
+    @defer.inlineCallbacks
+    def test_config_negative_random_delay_max(self):
+        try:
+            yield self.changesource.reconfigServiceWithSibling(
+                self.Subclass(name="NegativePollRandomDelayMax", pollInterval=1,
+                              pollAtLaunch=False, pollRandomDelayMin=1, pollRandomDelayMax=-1))
+        except ConfigErrors as e:
+            self.assertEqual("max random delay must be >= 0: -1", e.errors[0])
+
+    @defer.inlineCallbacks
+    def test_config_random_delay_min_gt_random_delay_max(self):
+        try:
+            yield self.changesource.reconfigServiceWithSibling(
+                self.Subclass(name="PollRandomDelayMinGtPollRandomDelayMax", pollInterval=1,
+                              pollAtLaunch=False, pollRandomDelayMin=2, pollRandomDelayMax=1))
+        except ConfigErrors as e:
+            self.assertEqual("min random delay must be <= 1: 2", e.errors[0])
+
+    @defer.inlineCallbacks
+    def test_config_random_delay_max_gte_interval(self):
+        try:
+            yield self.changesource.reconfigServiceWithSibling(
+                self.Subclass(name="PollRandomDelayMaxGtePollInterval", pollInterval=1,
+                              pollAtLaunch=False, pollRandomDelayMax=1))
+        except ConfigErrors as e:
+            self.assertEqual("max random delay must be < 1: 1", e.errors[0])
 
     @defer.inlineCallbacks
     def test_loop_loops(self):
         # track when poll() gets called
         loops = []
         self.changesource.poll = \
-            lambda: loops.append(self.clock.seconds())
+            lambda: loops.append(self.reactor.seconds())
 
         yield self.startChangeSource()
         yield self.changesource.reconfigServiceWithSibling(self.Subclass(
@@ -232,7 +270,7 @@ class TestReconfigurablePollingChangeSource(changesource.ChangeSourceMixin, unit
         loops = []
 
         def poll():
-            loops.append(self.clock.seconds())
+            loops.append(self.reactor.seconds())
             raise RuntimeError("oh noes")
         self.changesource.poll = poll
 
@@ -253,7 +291,7 @@ class TestReconfigurablePollingChangeSource(changesource.ChangeSourceMixin, unit
 
         loops = []
         self.changesource.poll = \
-            lambda: loops.append(self.clock.seconds())
+            lambda: loops.append(self.reactor.seconds())
 
         yield self.startChangeSource()
         yield self.changesource.reconfigServiceWithSibling(self.Subclass(
@@ -269,7 +307,7 @@ class TestReconfigurablePollingChangeSource(changesource.ChangeSourceMixin, unit
         # track when poll() gets called
         loops = []
         self.changesource.poll = \
-            lambda: loops.append(self.clock.seconds())
+            lambda: loops.append(self.reactor.seconds())
         yield self.startChangeSource()
         yield self.changesource.reconfigServiceWithSibling(self.Subclass(
             name="DummyCS", pollInterval=5, pollAtLaunch=True))

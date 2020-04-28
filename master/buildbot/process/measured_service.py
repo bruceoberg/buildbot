@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 
@@ -30,7 +28,7 @@ class MeasuredBuildbotServiceManager(BuildbotServiceManager):
         timer = metrics.Timer(
             "{0}.reconfigServiceWithBuildbotConfig".format(self.name))
         timer.start()
-        yield super(MeasuredBuildbotServiceManager, self).reconfigServiceWithBuildbotConfig(new_config)
+        yield super().reconfigServiceWithBuildbotConfig(new_config)
         metrics.MetricCountEvent.log("num_{0}".format(self.managed_services_name),
                                      len(list(self)), absolute=True)
         timer.stop()

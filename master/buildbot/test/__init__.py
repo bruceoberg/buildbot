@@ -13,12 +13,20 @@
 #
 # Copyright Buildbot Team Members
 
+import os
 import sys
 import warnings
-
 from distutils.version import LooseVersion
 
 from buildbot import monkeypatches
+
+# import mock so we bail out early if it's not installed
+try:
+    import mock
+    [mock]
+except ImportError:
+    raise ImportError("\nBuildbot tests require the 'mock' module; "
+                      "try 'pip install mock'")
 
 # apply the same patches the buildmaster does when it starts
 monkeypatches.patch_all(for_tests=True)
@@ -26,85 +34,9 @@ monkeypatches.patch_all(for_tests=True)
 # enable deprecation warnings
 warnings.filterwarnings('always', category=DeprecationWarning)
 
-if sys.version_info[:2] < (3, 2):
-    # Setup logging unhandled messages to stderr.
-    # Since Python 3.2 similar functionality implemented through
-    # logging.lastResort handler.
-    # Significant difference between this approach and Python 3.2 last resort
-    # approach is that in the current approach only records with log level
-    # equal or above to the root logger log level will be printed (WARNING by
-    # default). For example, there still will be warnings about missing
-    # handler for log if INFO or DEBUG records will be logged (but at least
-    # WARNINGs and ERRORs will be printed).
-    import logging
-    _handler = logging.StreamHandler()
-
-    # Ignore following Exception logs:
-    #       Traceback (most recent call last):
-    #       File "[..]site-packages/sqlalchemy/pool.py", line 290, in _close_connection
-    #       self._dialect.do_close(connection)
-    #       File "[..]/sqlalchemy/engine/default.py", line 426, in do_close
-    #       dbapi_connection.close()
-    #       ProgrammingError: SQLite objects created in a thread can only be used in that same thread.
-    #       The object was created in thread id 123145306509312 and this is thread id 140735272824832
-    # sqlalchemy is closing pool connections from the main thread, which sqlite does not like
-    # the warning has been there since forever, but would be caught by the next lastResort logger
-    logging.getLogger("sqlalchemy.pool.SingletonThreadPool").addHandler(None)
-    logging.getLogger().addHandler(_handler)
-# import mock so we bail out early if it's not installed
-try:
-    import mock
-    mock = mock
-except ImportError:
-    raise ImportError("\nBuildbot tests require the 'mock' module; "
-                      "try 'pip install mock'")
-
 if LooseVersion(mock.__version__) < LooseVersion("0.8"):
     raise ImportError("\nBuildbot tests require mock version 0.8.0 or "
                       "higher; try 'pip install -U mock'")
-
-# Force loading of deprecated modules and check that appropriate warnings
-# were emitted.
-# Without explicit load of deprecated modules it's hard to predict when
-# they will be imported and when warning should be caught.
-from buildbot.test.util.warnings import assertProducesWarning  # noqa pylint: disable=wrong-import-position
-from buildbot.worker_transition import DeprecatedWorkerAPIWarning  # noqa pylint: disable=wrong-import-position
-from buildbot.worker_transition import DeprecatedWorkerModuleWarning  # noqa pylint: disable=wrong-import-position
-
-with assertProducesWarning(
-        DeprecatedWorkerModuleWarning,
-        message_pattern=r"'buildbot\.buildslave' module is deprecated"):
-    import buildbot.buildslave as _  # noqa
-
-with assertProducesWarning(
-        DeprecatedWorkerModuleWarning,
-        message_pattern=r"'buildbot\.steps\.slave' module is deprecated"):
-    import buildbot.steps.slave as _  # noqa
-
-with assertProducesWarning(
-        DeprecatedWorkerModuleWarning,
-        message_pattern=r"'buildbot\.process\.slavebuilder' module is deprecated"):
-    import buildbot.process.slavebuilder as _  # noqa
-
-with assertProducesWarning(
-        DeprecatedWorkerModuleWarning,
-        message_pattern=r"'buildbot\.db\.buildslaves' module is deprecated"):
-    import buildbot.db.buildslaves as _  # noqa
-
-with assertProducesWarning(
-        DeprecatedWorkerModuleWarning,
-        message_pattern=r"'buildbot\.buildslave\.ec2' module is deprecated"):
-    import buildbot.buildslave.ec2 as _  # noqa
-
-with assertProducesWarning(
-        DeprecatedWorkerModuleWarning,
-        message_pattern=r"'buildbot\.buildslave\.libvirt' module is deprecated"):
-    import buildbot.buildslave.libvirt as _  # noqa
-
-with assertProducesWarning(
-        DeprecatedWorkerModuleWarning,
-        message_pattern=r"'buildbot\.buildslave\.openstack' module is deprecated"):
-    import buildbot.buildslave.openstack as _  # noqa
 
 # All deprecated modules should be loaded, consider future warnings in tests as errors.
 # In order to not pollute the test outputs,
@@ -138,3 +70,39 @@ warnings.filterwarnings('ignore', r"object\(\) takes no parameters")
 
 # this warning happens sometimes on python3.4
 warnings.filterwarnings('ignore', r"The value of convert_charrefs will become True in 3.5")
+
+# Twisted 18.4+ adds a deprecation warning and still use the deprecated API in its own code!
+warnings.filterwarnings('ignore', ".*getClientIP was deprecated.*", DeprecationWarning)
+
+# Python 3.7 adds a deprecation warning formatargspec.
+# The signature api that replaces it is not available in 2.7
+warnings.filterwarnings('ignore', ".*`formatargspec` is deprecated.*", DeprecationWarning)
+
+# Python 3.7 adds a deprecation importing ABCs from collection.
+# Such imports are made in dependencies (e.g moto, werzeug, pyparsing)
+warnings.filterwarnings('ignore', ".*Using or importing the ABCs from 'collections'.*",
+                        DeprecationWarning)
+
+# more 3.7 warning from moto
+warnings.filterwarnings('ignore', r".*Use 'list\(elem\)' or iteration over elem instead.*",
+                        DeprecationWarning)
+
+# ignore ResourceWarnings for unclosed sockets for the pg8000 driver on Python 3+ (tech debt: #4508)
+if sys.version_info[0] >= 3 and "pg8000" in os.getenv("BUILDBOT_TEST_DB_URL", ""):
+    warnings.filterwarnings('ignore', ".*unclosed .*socket", ResourceWarning)
+
+# Python 3.5 on CircleCI shows this warning
+warnings.filterwarnings('ignore', ".*the imp module is deprecated in favour of importlib*")
+
+# sqlalchemy-migrate uses deprecated api from sqlalchemy https://review.openstack.org/#/c/648072/
+warnings.filterwarnings('ignore', ".*Engine.contextual_connect.*", DeprecationWarning)
+
+# ignore an attrs API warning for APIs used in dependencies
+warnings.filterwarnings('ignore', ".*The usage of `cmp` is deprecated and will be removed "
+                                  "on or after.*", DeprecationWarning)
+
+# ignore a warning emitted by pkg_resources when importing certain namespace packages
+warnings.filterwarnings('ignore', ".*Not importing directory .*/zope: missing __init__",
+                        category=ImportWarning)
+warnings.filterwarnings('ignore', ".*Not importing directory .*/sphinxcontrib: missing __init__",
+                        category=ImportWarning)

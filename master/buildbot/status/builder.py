@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import itertools
 import os
@@ -195,8 +193,7 @@ class BuilderStatus(styles.Versioned):
         return None
 
     def _getBuildBranches(self, build):
-        return set([ss.branch
-                    for ss in build.getSourceStamps()])
+        return {ss.branch for ss in build.getSourceStamps()}
 
     def generateFinishedBuilds(self, branches=None,
                                num_builds=None,
@@ -243,9 +240,9 @@ class BuilderStatus(styles.Versioned):
                 if got >= num_builds:
                     return
 
-    def eventGenerator(self, branches=None, categories=None, committers=None, projects=None, minTime=0):
-        if False:  # pylint: disable=using-constant-test
-            yield
+    def eventGenerator(self, branches=None, categories=None, committers=None, projects=None,
+                       minTime=0):
+        """ Not implemented """
 
     def subscribe(self, receiver):
         # will get builderChangedState, buildStarted, buildFinished,

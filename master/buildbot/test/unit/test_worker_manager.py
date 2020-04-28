@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import mock
 
 from twisted.internet import defer
@@ -25,6 +22,7 @@ from zope.interface import implementer
 from buildbot import interfaces
 from buildbot.process import botmaster
 from buildbot.test.fake import fakemaster
+from buildbot.test.util.misc import TestReactorMixin
 from buildbot.util import service
 from buildbot.worker import manager as workermanager
 
@@ -35,7 +33,7 @@ class FakeWorker(service.BuildbotService):
     reconfig_count = 0
 
     def __init__(self, workername):
-        service.BuildbotService.__init__(self, name=workername)
+        super().__init__(name=workername)
 
     def reconfigService(self):
         self.reconfig_count += 1
@@ -47,19 +45,20 @@ class FakeWorker2(FakeWorker):
     pass
 
 
-class TestWorkerManager(unittest.TestCase):
+class TestWorkerManager(TestReactorMixin, unittest.TestCase):
 
+    @defer.inlineCallbacks
     def setUp(self):
-        self.master = fakemaster.make_master(testcase=self,
-                                             wantMq=True, wantData=True)
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self, wantMq=True, wantData=True)
         self.master.mq = self.master.mq
         self.workers = workermanager.WorkerManager(self.master)
-        self.workers.setServiceParent(self.master)
+        yield self.workers.setServiceParent(self.master)
         # workers expect a botmaster as well as a manager.
         self.master.botmaster.disownServiceParent()
         self.botmaster = botmaster.BotMaster()
         self.master.botmaster = self.botmaster
-        self.master.botmaster.setServiceParent(self.master)
+        yield self.master.botmaster.setServiceParent(self.master)
 
         self.new_config = mock.Mock()
         self.workers.startService()
@@ -87,7 +86,7 @@ class TestWorkerManager(unittest.TestCase):
     @defer.inlineCallbacks
     def test_reconfigServiceWorkers_reconfig(self):
         worker = FakeWorker('worker1')
-        worker.setServiceParent(self.workers)
+        yield worker.setServiceParent(self.workers)
         worker.parent = self.master
         worker.manager = self.workers
         worker.botmaster = self.master.botmaster
@@ -103,7 +102,7 @@ class TestWorkerManager(unittest.TestCase):
     @defer.inlineCallbacks
     def test_reconfigServiceWorkers_class_changes(self):
         worker = FakeWorker('worker1')
-        worker.setServiceParent(self.workers)
+        yield worker.setServiceParent(self.workers)
 
         worker_new = FakeWorker2('worker1')
         self.new_config.workers = [worker_new]

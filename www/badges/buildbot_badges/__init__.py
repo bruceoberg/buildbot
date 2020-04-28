@@ -13,28 +13,29 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
-import cairocffi as cairo
-import cairosvg
+from xml.sax.saxutils import escape
 
 import jinja2
+
 from klein import Klein
 from twisted.internet import defer
 
+import cairocffi as cairo
+import cairosvg
 from buildbot.process.results import Results
+from buildbot.util import bytes2unicode
 from buildbot.www.plugin import Application
-from xml.sax.saxutils import escape
-from buildbot.util import bytes2NativeString
 
 
-class Api(object):
+class Api:
     app = Klein()
 
-    default = {  # note that these defaults are documented in cfg-www.rst
+    default = {  # note that these defaults are documented in configuration/www.rst
+        "left_pad": 5,
         "left_text": "Build Status",
         "left_color": "#555",
+        "right_pad": 5,
+        "border_radius": 5,
         "style": "plastic",
         "template_name": "{style}.svg.j2",
         "font_face": "DejaVu Sans",
@@ -69,8 +70,8 @@ class Api(object):
                 config[k] = v
 
         for k, v in request.args.items():
-            k = bytes2NativeString(k)
-            config[k] = escape(bytes2NativeString(v[0]))
+            k = bytes2unicode(k)
+            config[k] = escape(bytes2unicode(v[0]))
         return config
 
     @app.route("/<string:builder>.png", methods=['GET'])
@@ -102,7 +103,8 @@ class Api(object):
             elif results >= 0 and results < len(Results):
                 results_txt = Results[results]
 
-        svgdata = self.makesvg(results_txt, results_txt, left_text=config['left_text'], config=config)
+        svgdata = self.makesvg(results_txt, results_txt, left_text=config['left_text'],
+                               config=config)
         defer.returnValue(svgdata)
 
     def textwidth(self, text, config):
@@ -112,9 +114,9 @@ class Api(object):
         ctx = cairo.Context(surface)
         ctx.select_font_face(config['font_face'],
                              cairo.FONT_SLANT_NORMAL,
-                             cairo.FONT_WEIGHT_BOLD)
+                             cairo.FONT_WEIGHT_NORMAL)
         ctx.set_font_size(int(config['font_size']))
-        return ctx.text_extents(text)[2] + 2
+        return ctx.text_extents(text)[4]
 
     def makesvg(self, right_text, status=None, left_text=None,
                 left_color=None, config=None):

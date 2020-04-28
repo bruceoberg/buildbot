@@ -16,8 +16,6 @@
 Various decorators for test cases
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import os
 import sys
@@ -40,15 +38,20 @@ def todo(message):
     return wrap
 
 
-def flaky(bugNumber=None, issueNumber=None):
+def flaky(bugNumber=None, issueNumber=None, onPlatform=None):
     def wrap(fn):
-        if not os.environ.get(_FLAKY_ENV_VAR):
-            if bugNumber is not None:
-                fn.skip = ("Flaky test (http://trac.buildbot.net/ticket/%d) "
-                        "- set $%s to run anyway" % (bugNumber, _FLAKY_ENV_VAR))
-            if issueNumber is not None:
-                fn.skip = ("Flaky test (https://github.com/buildbot/buildbot/issues/%d) "
-                        "- set $%s to run anyway" % (issueNumber, _FLAKY_ENV_VAR))
+        if onPlatform is not None and sys.platform != onPlatform:
+            return fn
+
+        if os.environ.get(_FLAKY_ENV_VAR):
+            return fn
+
+        if bugNumber is not None:
+            fn.skip = (("Flaky test (http://trac.buildbot.net/ticket/{}) "
+                        "- set ${} to run anyway").format(bugNumber, _FLAKY_ENV_VAR))
+        if issueNumber is not None:
+            fn.skip = (("Flaky test (https://github.com/buildbot/buildbot/issues/{}) "
+                        "- set ${} to run anyway").format(issueNumber, _FLAKY_ENV_VAR))
         return fn
     return wrap
 
@@ -56,7 +59,7 @@ def flaky(bugNumber=None, issueNumber=None):
 def skipUnlessPlatformIs(platform):
     def closure(test):
         if runtime.platformType != platform:
-            test.skip = "not a %s platform" % platform
+            test.skip = "not a {} platform".format(platform)
         return test
     return closure
 

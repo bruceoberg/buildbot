@@ -13,20 +13,16 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.builtins import range
-from future.moves.collections import UserList
-
 import copy
 import re
+from collections import UserList
 
 from twisted.internet import defer
 
 from buildbot.data import exceptions
 
 
-class ResourceType(object):
+class ResourceType:
     name = None
     plural = None
     endpoints = []
@@ -53,8 +49,7 @@ class ResourceType(object):
 
     def getEndpoints(self):
         endpoints = self.endpoints[:]
-        for i in range(len(endpoints)):
-            ep = endpoints[i]
+        for i, ep in enumerate(endpoints):
             if not issubclass(ep, Endpoint):
                 raise TypeError("Not an Endpoint subclass")
             endpoints[i] = ep(self, self.master)
@@ -74,7 +69,7 @@ class ResourceType(object):
                 self.master.mq.produce(routingKey, msg)
 
 
-class Endpoint(object):
+class Endpoint:
     pathPatterns = ""
     rootLinkName = None
     isCollection = False
@@ -98,7 +93,7 @@ class Endpoint(object):
         return "endpoint for " + self.pathPatterns
 
 
-class BuildNestingMixin(object):
+class BuildNestingMixin:
 
     """
     A mixin for methods to decipher the many ways a build, step, or log can be
@@ -110,34 +105,34 @@ class BuildNestingMixin(object):
         # need to look in the context of a step, specified by build or
         # builder or whatever
         if 'buildid' in kwargs:
-            defer.returnValue(kwargs['buildid'])
+            return kwargs['buildid']
         else:
             builderid = yield self.getBuilderId(kwargs)
             if builderid is None:
-                return
+                return None
             build = yield self.master.db.builds.getBuildByNumber(
                 builderid=builderid,
                 number=kwargs['build_number'])
             if not build:
-                return
-            defer.returnValue(build['id'])
+                return None
+            return build['id']
 
     @defer.inlineCallbacks
     def getStepid(self, kwargs):
         if 'stepid' in kwargs:
-            defer.returnValue(kwargs['stepid'])
+            return kwargs['stepid']
         else:
             buildid = yield self.getBuildid(kwargs)
             if buildid is None:
-                return
+                return None
 
             dbdict = yield self.master.db.steps.getStep(buildid=buildid,
                                                         number=kwargs.get(
                                                             'step_number'),
                                                         name=kwargs.get('step_name'))
             if not dbdict:
-                return
-            defer.returnValue(dbdict['id'])
+                return None
+            return dbdict['id']
 
     def getBuilderId(self, kwargs):
         if 'buildername' in kwargs:
@@ -151,7 +146,7 @@ class ListResult(UserList):
 
     def __init__(self, values,
                  offset=None, total=None, limit=None):
-        UserList.__init__(self, values)
+        super().__init__(values)
 
         # if set, this is the index in the overall results of the first element of
         # this list

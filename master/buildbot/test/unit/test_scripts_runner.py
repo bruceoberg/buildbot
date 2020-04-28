@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import getpass
 import os
 import sys
@@ -33,7 +30,7 @@ from buildbot.scripts import runner
 from buildbot.test.util import misc
 
 
-class OptionsMixin(object):
+class OptionsMixin:
 
     def setUpOptions(self):
         self.options_file = {}
@@ -41,13 +38,12 @@ class OptionsMixin(object):
                    lambda other_self: self.options_file)
 
     def assertOptions(self, opts, exp):
-        got = dict([(k, opts[k]) for k in exp])
+        got = {k: opts[k] for k in exp}
         if got != exp:
             msg = []
             for k in exp:
                 if opts[k] != exp[k]:
-                    msg.append(" %s: expected %r, got %r" %
-                               (k, exp[k], opts[k]))
+                    msg.append(" {}: expected {}, got {}".format(k, repr(exp[k]), repr(opts[k])))
             self.fail("did not get expected options\n" + ("\n".join(msg)))
 
 
@@ -97,7 +93,7 @@ class TestCreateMasterOptions(OptionsMixin, unittest.TestCase):
                         **{'no-logrotate': False, 'log-size': 10000000,
                            'log-count': 10})
         unk_keys = set(kwargs.keys()) - set(defaults.keys())
-        assert not unk_keys, "invalid keys %s" % (unk_keys,)
+        assert not unk_keys, "invalid keys {}".format(unk_keys)
         opts = defaults.copy()
         opts.update(kwargs)
         return opts
@@ -172,8 +168,8 @@ class TestCreateMasterOptions(OptionsMixin, unittest.TestCase):
         self.assertOptions(opts, exp)
 
     def test_log_size_noninteger(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse('--log-size=1M'))
+        with self.assertRaises(usage.UsageError):
+            self.parse('--log-size=1M')
 
     def test_log_count(self):
         opts = self.parse('-l124')
@@ -191,8 +187,8 @@ class TestCreateMasterOptions(OptionsMixin, unittest.TestCase):
         self.assertOptions(opts, exp)
 
     def test_log_count_noninteger(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse('--log-count=M'))
+        with self.assertRaises(usage.UsageError):
+            self.parse('--log-count=M')
 
     def test_db_long(self):
         opts = self.parse('--db=foo://bar')
@@ -200,9 +196,9 @@ class TestCreateMasterOptions(OptionsMixin, unittest.TestCase):
         self.assertOptions(opts, exp)
 
     def test_db_invalid(self):
-        self.assertRaisesRegex(usage.UsageError,
-                               "could not parse database URL 'inv_db_url'",
-                               self.parse, "--db=inv_db_url")
+        with self.assertRaisesRegex(usage.UsageError,
+                               "could not parse database URL 'inv_db_url'"):
+            self.parse("--db=inv_db_url")
 
     def test_db_basedir(self):
         path = r'c:\foo\bar' if runtime.platformType == "win32" else '/foo/bar'
@@ -227,7 +223,7 @@ class BaseTestSimpleOptions(OptionsMixin):
 
     def test_synopsis(self):
         opts = self.optionsClass()
-        self.assertIn('buildbot %s' % self.commandName, opts.getSynopsis())
+        self.assertIn('buildbot {}'.format(self.commandName), opts.getSynopsis())
 
     def test_defaults(self):
         opts = self.parse()
@@ -382,8 +378,8 @@ class TestTryOptions(OptionsMixin, unittest.TestCase):
         self.assertOptions(opts, exp)
 
     def test_patchlevel_inval(self):
-        self.assertRaises(ValueError, lambda:
-                          self.parse('-p', 'a'))
+        with self.assertRaises(ValueError):
+            self.parse('-p', 'a')
 
     def test_config_builders(self):
         self.options_file['try_builders'] = ['a', 'b']
@@ -416,8 +412,8 @@ class TestTryOptions(OptionsMixin, unittest.TestCase):
         self.options_file.update(dict(try_connect='pb', try_vc='cvs',
                                       try_branch='br', try_repository='rep', try_topdir='.',
                                       try_topfile='Makefile', try_host='h', try_username='u',
-                                      try_jobdir='j', try_password='p', try_master='m:8', try_who='w',
-                                      try_comment='comm', try_quiet='y', try_wait='y',
+                                      try_jobdir='j', try_password='p', try_master='m:8',
+                                      try_who='w', try_comment='comm', try_quiet='y', try_wait='y',
                                       try_buildbotbin='.virtualenvs/buildbot/bin/buildbot'))
         opts = self.parse()
         exp = self.defaults_and(wait=True, quiet=True, connect='pb', host='h',
@@ -432,15 +428,16 @@ class TestTryOptions(OptionsMixin, unittest.TestCase):
         When 'builbot try' is asked to connect via pb, but no master is
         specified, a usage error is raised.
         """
-        self.assertRaises(usage.UsageError, self.parse, '--connect=pb')
+        with self.assertRaises(usage.UsageError):
+            self.parse('--connect=pb')
 
     def test_pb_withInvalidMaster(self):
         """
         When 'buildbot try' is asked to connect via pb, but an invalid
         master is specified, a usage error is raised.
         """
-        self.assertRaises(usage.UsageError, self.parse,
-                          '--connect=pb', '--master=foo')
+        with self.assertRaises(usage.UsageError):
+            self.parse('--connect=pb', '--master=foo')
 
 
 class TestSendChangeOptions(OptionsMixin, unittest.TestCase):
@@ -522,8 +519,8 @@ class TestSendChangeOptions(OptionsMixin, unittest.TestCase):
         self.assertOptions(opts, dict(revision='my-rev'))
 
     def test_invalid_when(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse('--when=foo', *self.master_and_who))
+        with self.assertRaises(usage.UsageError):
+            self.parse('--when=foo', *self.master_and_who)
 
     def test_comments_overrides_logfile(self):
         opts = self.parse('--logfile', 'logs', '--comments', 'foo',
@@ -549,13 +546,12 @@ class TestSendChangeOptions(OptionsMixin, unittest.TestCase):
         self.assertOptions(opts, dict(auth=('dustin', 'typed-password')))
 
     def test_invalid_vcs(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse('--vc=foo', *self.master_and_who))
+        with self.assertRaises(usage.UsageError):
+            self.parse('--vc=foo', *self.master_and_who)
 
     def test_invalid_master(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          "--who=test", "-m foo")
+        with self.assertRaises(usage.UsageError):
+            self.parse("--who=test", "-m foo")
 
 
 class TestTryServerOptions(OptionsMixin, unittest.TestCase):
@@ -573,8 +569,8 @@ class TestTryServerOptions(OptionsMixin, unittest.TestCase):
         self.assertIn('buildbot tryserver', opts.getSynopsis())
 
     def test_defaults(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse())
+        with self.assertRaises(usage.UsageError):
+            self.parse()
 
     def test_with_jobdir(self):
         opts = self.parse('--jobdir', 'xyz')
@@ -627,8 +623,8 @@ class TestUserOptions(OptionsMixin, unittest.TestCase):
         return self.opts
 
     def test_defaults(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse())
+        with self.assertRaises(usage.UsageError):
+            self.parse()
 
     def test_synopsis(self):
         opts = runner.UserOptions()
@@ -691,93 +687,76 @@ class TestUserOptions(OptionsMixin, unittest.TestCase):
         self.assertOptions(opts, dict(master='mm:99'))
 
     def test_invalid_info(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse("--info", "foo=bar",
-                                             '--op', 'add', *self.extra_args))
+        with self.assertRaises(usage.UsageError):
+            self.parse("--info", "foo=bar", '--op', 'add', *self.extra_args)
 
     def test_no_master(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse('-op=foo'))
+        with self.assertRaises(usage.UsageError):
+            self.parse('-op=foo')
 
     def test_invalid_master(self):
-        self.assertRaises(usage.UsageError, self.parse, '-m', 'foo')
+        with self.assertRaises(usage.UsageError):
+            self.parse('-m', 'foo')
 
     def test_no_operation(self):
-        self.assertRaises(usage.UsageError, self.parse, '-m', 'a:1')
+        with self.assertRaises(usage.UsageError):
+            self.parse('-m', 'a:1')
 
     def test_bad_operation(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '-m', 'a:1', '--op=mayhem')
+        with self.assertRaises(usage.UsageError):
+            self.parse('-m', 'a:1', '--op=mayhem')
 
     def test_no_username(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '-m', 'a:1', '--op=add')
+        with self.assertRaises(usage.UsageError):
+            self.parse('-m', 'a:1', '--op=add')
 
     def test_no_password(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=add', '-m', 'a:1', '-u', 'tdurden')
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=add', '-m', 'a:1', '-u', 'tdurden')
 
     def test_invalid_bb_username(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=add', '--bb_username=tdurden',
-                          *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=add', '--bb_username=tdurden', *self.extra_args)
 
     def test_invalid_bb_password(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=add', '--bb_password=marla',
-                          *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=add', '--bb_password=marla', *self.extra_args)
 
     def test_update_no_bb_username(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=update', '--bb_password=marla',
-                          *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=update', '--bb_password=marla', *self.extra_args)
 
     def test_update_no_bb_password(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=update', '--bb_username=tdurden',
-                          *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=update', '--bb_username=tdurden', *self.extra_args)
 
     def test_no_ids_info(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=add', *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=add', *self.extra_args)
 
     def test_ids_with_add(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=add', '--ids=id1', *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=add', '--ids=id1', *self.extra_args)
 
     def test_ids_with_update(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=update', '--ids=id1', *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=update', '--ids=id1', *self.extra_args)
 
     def test_no_ids_found_update(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          "--op=update", "--info=svn=x", *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse("--op=update", "--info=svn=x", *self.extra_args)
 
     def test_id_with_add(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          "--op=add", "--info=id:x", *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse("--op=add", "--info=id:x", *self.extra_args)
 
     def test_info_with_remove(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=remove', '--info=x=v', *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=remove', '--info=x=v', *self.extra_args)
 
     def test_info_with_get(self):
-        self.assertRaises(usage.UsageError,
-                          self.parse,
-                          '--op=get', '--info=x=v', *self.extra_args)
+        with self.assertRaises(usage.UsageError):
+            self.parse('--op=get', '--info=x=v', *self.extra_args)
 
 
 class TestOptions(OptionsMixin, misc.StdoutAssertionsMixin, unittest.TestCase):
@@ -792,8 +771,8 @@ class TestOptions(OptionsMixin, misc.StdoutAssertionsMixin, unittest.TestCase):
         return self.opts
 
     def test_defaults(self):
-        self.assertRaises(usage.UsageError,
-                          lambda: self.parse())
+        with self.assertRaises(usage.UsageError):
+            self.parse()
 
     def test_version(self):
         try:
@@ -804,7 +783,8 @@ class TestOptions(OptionsMixin, misc.StdoutAssertionsMixin, unittest.TestCase):
 
     def test_verbose(self):
         self.patch(log, 'startLogging', mock.Mock())
-        self.assertRaises(usage.UsageError, self.parse, "--verbose")
+        with self.assertRaises(usage.UsageError):
+            self.parse("--verbose")
         log.startLogging.assert_called_once_with(sys.stderr)
 
 

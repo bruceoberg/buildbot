@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import mock
 
 from twisted.internet import defer
@@ -27,6 +24,7 @@ from buildbot.schedulers import manager
 
 class SchedulerManager(unittest.TestCase):
 
+    @defer.inlineCallbacks
     def setUp(self):
         self.next_objectid = 13
         self.objectids = {}
@@ -52,12 +50,13 @@ class SchedulerManager(unittest.TestCase):
         self.new_config = mock.Mock()
 
         self.sm = manager.SchedulerManager()
-        self.sm.setServiceParent(self.master)
-        return self.sm.startService()
+        yield self.sm.setServiceParent(self.master)
+        yield self.sm.startService()
 
     def tearDown(self):
         if self.sm.running:
             return self.sm.stopService()
+        return None
 
     class Sched(base.BaseScheduler):
 
@@ -71,16 +70,14 @@ class SchedulerManager(unittest.TestCase):
             assert self.master is not None
             assert self.objectid is not None
             self.already_started = True
-            return base.BaseScheduler.startService(self)
+            return super().startService()
 
+        @defer.inlineCallbacks
         def stopService(self):
-            d = base.BaseScheduler.stopService(self)
+            yield super().stopService()
 
-            def still_set(_):
-                assert self.master is not None
-                assert self.objectid is not None
-            d.addCallback(still_set)
-            return d
+            assert self.master is not None
+            assert self.objectid is not None
 
         def __repr__(self):
             return "{}(attr={})".format(self.__class__.__name__, self.attr)
@@ -90,7 +87,7 @@ class SchedulerManager(unittest.TestCase):
         def reconfigServiceWithSibling(self, new_config):
             self.reconfig_count += 1
             self.attr = new_config.attr
-            return base.BaseScheduler.reconfigServiceWithSibling(self, new_config)
+            return super().reconfigServiceWithSibling(new_config)
 
     class ReconfigSched2(ReconfigSched):
         pass

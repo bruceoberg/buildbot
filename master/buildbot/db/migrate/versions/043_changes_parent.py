@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import sqlalchemy as sa
 
@@ -27,5 +25,6 @@ def upgrade(migrate_engine):
 
     changes_table = sautils.Table('changes', metadata, autoload=True)
 
-    parent_changeids = sa.Column('parent_changeids', sa.Integer, sa.ForeignKey('changes.changeid'), nullable=True)
+    parent_changeids = sa.Column('parent_changeids', sa.Integer, sa.ForeignKey('changes.changeid'),
+                                 nullable=True)
     parent_changeids.create(changes_table)

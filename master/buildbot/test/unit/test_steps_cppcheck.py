@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 from twisted.trial import unittest
 
 from buildbot.process.properties import WithProperties
@@ -25,11 +22,13 @@ from buildbot.process.results import WARNINGS
 from buildbot.steps import cppcheck
 from buildbot.test.fake.remotecommand import ExpectShell
 from buildbot.test.util import steps
+from buildbot.test.util.misc import TestReactorMixin
 
 
-class Cppcheck(steps.BuildStepMixin, unittest.TestCase):
+class Cppcheck(steps.BuildStepMixin, TestReactorMixin, unittest.TestCase):
 
     def setUp(self):
+        self.setUpTestReactor()
         return self.setUpBuildStep()
 
     def tearDown(self):
@@ -54,8 +53,10 @@ class Cppcheck(steps.BuildStepMixin, unittest.TestCase):
             ExpectShell.log(
                 'stdio',
                 stdout=('Checking file1.c...\n'
-                        '[file1.c:3]: (warning) Logical disjunction always evaluates to true: t >= 0 || t < 65.\n'
-                        '(information) Cppcheck cannot find all the include files (use --check-config for details)')) +
+                        '[file1.c:3]: (warning) Logical disjunction always '
+                        'evaluates to true: t >= 0 || t < 65.\n'
+                        '(information) Cppcheck cannot find all the include files '
+                        '(use --check-config for details)')) +
             0)
         self.expectOutcome(result=WARNINGS,
                            state_string="cppcheck warning=1 information=1 (warnings)")

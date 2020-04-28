@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import os
 from binascii import hexlify
@@ -23,7 +21,7 @@ from hashlib import sha1
 from twisted.internet import defer
 from twisted.python import log
 
-from buildbot.util import bytes2NativeString
+from buildbot.util import bytes2unicode
 from buildbot.util import flatten
 from buildbot.util import unicode2bytes
 
@@ -54,7 +52,7 @@ def createUserObject(master, author, src=None):
     if src in srcs:
         usdict = dict(identifier=author, attr_type=src, attr_data=author)
     else:
-        log.msg("Unrecognized source argument: %s" % src)
+        log.msg("Unrecognized source argument: {}".format(src))
         return defer.succeed(None)
 
     return master.db.users.findUserByAttr(
@@ -167,7 +165,7 @@ def encrypt(passwd):
     m = sha1()
     salt = hexlify(os.urandom(salt_len))
     m.update(unicode2bytes(passwd) + salt)
-    crypted = bytes2NativeString(salt) + m.hexdigest()
+    crypted = bytes2unicode(salt) + m.hexdigest()
     return crypted
 
 
@@ -184,6 +182,6 @@ def check_passwd(guess, passwd):
     m = sha1()
     salt = passwd[:salt_len * 2]  # salt_len * 2 due to encode('hex_codec')
     m.update(unicode2bytes(guess) + unicode2bytes(salt))
-    crypted_guess = bytes2NativeString(salt) + m.hexdigest()
+    crypted_guess = bytes2unicode(salt) + m.hexdigest()
 
-    return (crypted_guess == bytes2NativeString(passwd))
+    return (crypted_guess == bytes2unicode(passwd))

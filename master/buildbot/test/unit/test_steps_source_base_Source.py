@@ -13,21 +13,22 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import mock
 
+from twisted.internet import defer
 from twisted.trial import unittest
 
 from buildbot.steps.source import Source
 from buildbot.test.util import sourcesteps
 from buildbot.test.util import steps
+from buildbot.test.util.misc import TestReactorMixin
 
 
-class TestSource(sourcesteps.SourceStepMixin, unittest.SynchronousTestCase):
+class TestSource(sourcesteps.SourceStepMixin, TestReactorMixin,
+                 unittest.TestCase):
 
     def setUp(self):
+        self.setUpTestReactor()
         return self.setUpBuildStep()
 
     def tearDown(self):
@@ -88,6 +89,7 @@ class TestSource(sourcesteps.SourceStepMixin, unittest.SynchronousTestCase):
 
         self.assertEqual(step.description, ['updating'])
 
+    @defer.inlineCallbacks
     def test_start_with_codebase(self):
         step = self.setupStep(Source(codebase='codebase'))
         step.branch = 'branch'
@@ -96,7 +98,7 @@ class TestSource(sourcesteps.SourceStepMixin, unittest.SynchronousTestCase):
         step.build.getSourceStamp.return_value = None
 
         self.assertEqual(step.describe(), ['updating', 'codebase'])
-        step.name = self.successResultOf(step.build.render(step.name))
+        step.name = yield step.build.render(step.name)
         self.assertEqual(step.name, Source.name + "-codebase")
 
         step.startStep(mock.Mock())
@@ -104,6 +106,7 @@ class TestSource(sourcesteps.SourceStepMixin, unittest.SynchronousTestCase):
 
         self.assertEqual(step.describe(True), ['update', 'codebase'])
 
+    @defer.inlineCallbacks
     def test_start_with_codebase_and_descriptionSuffix(self):
         step = self.setupStep(Source(codebase='my-code',
                                      descriptionSuffix='suffix'))
@@ -113,7 +116,7 @@ class TestSource(sourcesteps.SourceStepMixin, unittest.SynchronousTestCase):
         step.build.getSourceStamp.return_value = None
 
         self.assertEqual(step.describe(), ['updating', 'suffix'])
-        step.name = self.successResultOf(step.build.render(step.name))
+        step.name = yield step.build.render(step.name)
         self.assertEqual(step.name, Source.name + "-my-code")
 
         step.startStep(mock.Mock())
@@ -122,9 +125,11 @@ class TestSource(sourcesteps.SourceStepMixin, unittest.SynchronousTestCase):
         self.assertEqual(step.describe(True), ['update', 'suffix'])
 
 
-class TestSourceDescription(steps.BuildStepMixin, unittest.TestCase):
+class TestSourceDescription(steps.BuildStepMixin, TestReactorMixin,
+                            unittest.TestCase):
 
     def setUp(self):
+        self.setUpTestReactor()
         return self.setUpBuildStep()
 
     def tearDown(self):
@@ -157,9 +162,11 @@ class AttrGroup(Source):
         pass
 
 
-class TestSourceAttrGroup(sourcesteps.SourceStepMixin, unittest.TestCase):
+class TestSourceAttrGroup(sourcesteps.SourceStepMixin, TestReactorMixin,
+                          unittest.TestCase):
 
     def setUp(self):
+        self.setUpTestReactor()
         return self.setUpBuildStep()
 
     def tearDown(self):
@@ -177,8 +184,8 @@ class TestSourceAttrGroup(sourcesteps.SourceStepMixin, unittest.TestCase):
                          step.mode_full)
         self.assertEqual(step._getAttrGroupMember('mode', 'incremental'),
                          step.mode_incremental)
-        self.assertRaises(AttributeError,
-                          step._getAttrGroupMember, 'mode', 'nothing')
+        with self.assertRaises(AttributeError):
+            step._getAttrGroupMember('mode', 'nothing')
 
     def test_attrgroup_listattr(self):
         step = AttrGroup()

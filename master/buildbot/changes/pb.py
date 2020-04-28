@@ -13,17 +13,12 @@
 #
 # Copyright Buildbot Team Members
 
-
-from __future__ import absolute_import
-from __future__ import print_function
-
 from twisted.internet import defer
 from twisted.python import log
 
 from buildbot import config
 from buildbot.changes import base
 from buildbot.pbutil import NewCredPerspective
-from buildbot.util import service
 
 
 class ChangePerspective(NewCredPerspective):
@@ -49,6 +44,8 @@ class ChangePerspective(NewCredPerspective):
             changedict['project'] = ''
         if 'files' not in changedict or not changedict['files']:
             changedict['files'] = []
+        if 'committer' in changedict and not changedict['committer']:
+            changedict['committer'] = None
 
         # rename arguments to new names.  Note that the client still uses the
         # "old" names (who, when, and isdir), as they are not deprecated yet,
@@ -107,11 +104,11 @@ class PBChangeSource(base.ChangeSource):
 
         if name is None:
             if prefix:
-                name = "PBChangeSource:%s:%s" % (prefix, port)
+                name = "PBChangeSource:{}:{}".format(prefix, port)
             else:
-                name = "PBChangeSource:%s" % (port,)
+                name = "PBChangeSource:{}".format(port)
 
-        base.ChangeSource.__init__(self, name=name)
+        super().__init__(name=name)
 
         self.user = user
         self.passwd = passwd
@@ -124,7 +121,7 @@ class PBChangeSource(base.ChangeSource):
         portname = self.registered_port
         d = "PBChangeSource listener on " + str(portname)
         if self.prefix is not None:
-            d += " (prefix '%s')" % self.prefix
+            d += " (prefix '{}')".format(self.prefix)
         return d
 
     def _calculatePort(self, cfg):
@@ -145,26 +142,25 @@ class PBChangeSource(base.ChangeSource):
         # and, if it's changed, re-register
         if port != self.registered_port and self.isActive():
             yield self._unregister()
-            self._register(port)
+            yield self._register(port)
 
-        yield service.ReconfigurableServiceMixin.reconfigServiceWithBuildbotConfig(
-            self, new_config)
+        yield super().reconfigServiceWithBuildbotConfig(new_config)
 
+    @defer.inlineCallbacks
     def activate(self):
         port = self._calculatePort(self.master.config)
-        self._register(port)
-        return defer.succeed(None)
+        yield self._register(port)
 
     def deactivate(self):
         return self._unregister()
 
+    @defer.inlineCallbacks
     def _register(self, port):
         if not port:
             return
         self.registered_port = port
-        self.registration = self.master.pbmanager.register(
-            port, self.user, self.passwd,
-            self.getPerspective)
+        self.registration = yield self.master.pbmanager.register(port, self.user, self.passwd,
+                                                                 self.getPerspective)
 
     def _unregister(self):
         self.registered_port = None

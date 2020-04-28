@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import os
 from unittest import SkipTest
 
@@ -28,29 +25,32 @@ from buildbot.reporters.pushjet import PushjetNotifier
 from buildbot.test.fake import fakemaster
 from buildbot.test.fake import httpclientservice as fakehttpclientservice
 from buildbot.test.util.config import ConfigErrorsMixin
+from buildbot.test.util.misc import TestReactorMixin
 from buildbot.util import httpclientservice
 
 
-class TestPushjetNotifier(ConfigErrorsMixin, unittest.TestCase):
+class TestPushjetNotifier(ConfigErrorsMixin, TestReactorMixin,
+                          unittest.TestCase):
 
     def setUp(self):
-        self.master = fakemaster.make_master(testcase=self,
-                                             wantData=True, wantDb=True, wantMq=True)
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self, wantData=True, wantDb=True,
+                                             wantMq=True)
 
+    # returns a Deferred
     def setupFakeHttp(self, base_url='https://api.pushjet.io'):
-        return self.successResultOf(fakehttpclientservice.HTTPClientService.getFakeService(
-            self.master, self, base_url))
+        return fakehttpclientservice.HTTPClientService.getFakeService(self.master, self, base_url)
 
     @defer.inlineCallbacks
     def setupPushjetNotifier(self, secret=Interpolate("1234"), **kwargs):
         pn = PushjetNotifier(secret, **kwargs)
         yield pn.setServiceParent(self.master)
         yield pn.startService()
-        defer.returnValue(pn)
+        return pn
 
     @defer.inlineCallbacks
     def test_sendMessage(self):
-        _http = self.setupFakeHttp()
+        _http = yield self.setupFakeHttp()
         pn = yield self.setupPushjetNotifier(levels={'passing': 2})
         _http.expect("post", "/message",
                      data={'secret': "1234", 'level': 2,
@@ -62,7 +62,7 @@ class TestPushjetNotifier(ConfigErrorsMixin, unittest.TestCase):
 
     @defer.inlineCallbacks
     def test_sendNotification(self):
-        _http = self.setupFakeHttp('https://tests.io')
+        _http = yield self.setupFakeHttp('https://tests.io')
         pn = yield self.setupPushjetNotifier(base_url='https://tests.io')
         _http.expect("post", "/message",
                      data={'secret': "1234", 'message': "Test"},

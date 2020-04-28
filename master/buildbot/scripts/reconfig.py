@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import os
 import platform
@@ -38,13 +35,13 @@ class Reconfigurator:
         # Returns "Microsoft" for Vista and "Windows" for other versions
         if platform.system() in ("Windows", "Microsoft"):
             print("Reconfig (through SIGHUP) is not supported on Windows.")
-            return
+            return None
 
         with open(os.path.join(basedir, "twistd.pid"), "rt") as f:
             self.pid = int(f.read().strip())
         if quiet:
             os.kill(self.pid, signal.SIGHUP)
-            return
+            return None
 
         # keep reading twistd.log. Display all messages between "loading
         # configuration from ..." and "configuration update complete" or
@@ -83,7 +80,7 @@ class Reconfigurator:
             # we were probably unable to open the file in the first place
             self.sighup()
         else:
-            print("Error while following twistd.log: %s" % why)
+            print("Error while following twistd.log: {}".format(why))
 
 
 @in_reactor

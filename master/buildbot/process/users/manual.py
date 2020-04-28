@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import string_types
-
 from twisted.internet import defer
 from twisted.python import log
 
@@ -57,8 +53,8 @@ class CommandlineUserManagerPerspective(pbutil.NewCredPerspective):
             # list, alternating ident, uid
             formatted_results += "user(s) added:\n"
             for user in results:
-                if isinstance(user, string_types):
-                    formatted_results += "identifier: %s\n" % user
+                if isinstance(user, str):
+                    formatted_results += "identifier: {}\n".format(user)
                 else:
                     formatted_results += "uid: %d\n\n" % user
         elif op == 'remove':
@@ -66,13 +62,13 @@ class CommandlineUserManagerPerspective(pbutil.NewCredPerspective):
             formatted_results += "user(s) removed:\n"
             for user in results:
                 if user:
-                    formatted_results += "identifier: %s\n" % (user)
+                    formatted_results += "identifier: {}\n".format(user)
         elif op == 'update':
             # list, alternating ident, None
             formatted_results += "user(s) updated:\n"
             for user in results:
                 if user:
-                    formatted_results += "identifier: %s\n" % (user)
+                    formatted_results += "identifier: {}\n".format(user)
         elif op == 'get':
             # list of dictionaries
             formatted_results += "user(s) found:\n"
@@ -80,7 +76,7 @@ class CommandlineUserManagerPerspective(pbutil.NewCredPerspective):
                 if user:
                     for key in sorted(user.keys()):
                         if key != 'bb_password':
-                            formatted_results += "%s: %s\n" % (key, user[key])
+                            formatted_results += "{}: {}\n".format(key, user[key])
                     formatted_results += "\n"
                 else:
                     formatted_results += "no match found\n"
@@ -129,12 +125,12 @@ class CommandlineUserManagerPerspective(pbutil.NewCredPerspective):
                         yield self.master.db.users.removeUser(uid)
                         result = user
                     else:
-                        log.msg("Unable to find uid for identifier %s" % user)
+                        log.msg("Unable to find uid for identifier {}".format(user))
                 elif op == 'get':
                     if uid:
                         result = yield self.master.db.users.getUser(uid)
                     else:
-                        log.msg("Unable to find uid for identifier %s" % user)
+                        log.msg("Unable to find uid for identifier {}".format(user))
 
                 results.append(result)
         else:
@@ -156,8 +152,7 @@ class CommandlineUserManagerPerspective(pbutil.NewCredPerspective):
                             bb_password=bb_password)
                         results.append(ident)
                     else:
-                        log.msg("Unable to find uid for identifier %s"
-                                % user)
+                        log.msg("Unable to find uid for identifier {}".format(user))
                 else:
                     # when adding, we update the user after the first attr
                     once_through = False
@@ -173,8 +168,7 @@ class CommandlineUserManagerPerspective(pbutil.NewCredPerspective):
                                     attr_type=attr,
                                     attr_data=user[attr])
                             else:
-                                log.msg("Unable to find uid for identifier %s"
-                                        % user)
+                                log.msg("Unable to find uid for identifier {}".format(user))
                         elif op == 'add':
                             result = yield self.master.db.users.findUserByAttr(
                                 identifier=ident,
@@ -188,7 +182,7 @@ class CommandlineUserManagerPerspective(pbutil.NewCredPerspective):
                             results.append(result)
                             uid = result
         results = self.formatResults(op, results)
-        defer.returnValue(results)
+        return results
 
 
 class CommandlineUserManager(service.AsyncMultiService):
@@ -199,7 +193,7 @@ class CommandlineUserManager(service.AsyncMultiService):
     """
 
     def __init__(self, username=None, passwd=None, port=None):
-        service.AsyncMultiService.__init__(self)
+        super().__init__()
         assert username and passwd, ("A username and password pair must be given "
                                      "to connect and use `buildbot user`")
         self.username = username
@@ -209,15 +203,15 @@ class CommandlineUserManager(service.AsyncMultiService):
         self.port = port
         self.registration = None
 
+    @defer.inlineCallbacks
     def startService(self):
         # set up factory and register with buildbot.pbmanager
         def factory(mind, username):
             return CommandlineUserManagerPerspective(self.master)
-        self.registration = self.master.pbmanager.register(self.port,
-                                                           self.username,
-                                                           self.passwd,
-                                                           factory)
-        return service.AsyncMultiService.startService(self)
+
+        self.registration = yield self.master.pbmanager.register(self.port, self.username,
+                                                                 self.passwd, factory)
+        yield super().startService()
 
     def stopService(self):
         d = defer.maybeDeferred(service.AsyncMultiService.stopService, self)
@@ -226,4 +220,5 @@ class CommandlineUserManager(service.AsyncMultiService):
         def unreg(_):
             if self.registration:
                 return self.registration.unregister()
+            return None
         return d

@@ -13,13 +13,8 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.moves.urllib.parse import quote as urlquote
-from future.utils import iteritems
-from future.utils import itervalues
-
 import os
+from urllib.parse import quote as urlquote
 
 from twisted.internet import defer
 from twisted.python import log
@@ -32,7 +27,7 @@ from buildbot.status import builder
 from buildbot.status import buildrequest
 from buildbot.status import buildset
 from buildbot.util import bbcollections
-from buildbot.util import bytes2NativeString
+from buildbot.util import bytes2unicode
 from buildbot.util import service
 from buildbot.util.eventual import eventually
 
@@ -41,7 +36,7 @@ from buildbot.util.eventual import eventually
 class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
 
     def __init__(self):
-        service.AsyncMultiService.__init__(self)
+        super().__init__()
         self.watchers = []
         # No default limit to the log size
         self.logMaxSize = None
@@ -80,7 +75,7 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
         self._change_consumer = yield self.master.mq.startConsuming(
             self.change_consumer_cb, ('changes', None, 'new'))
 
-        yield service.AsyncMultiService.startService(self)
+        yield super().startService()
 
     @defer.inlineCallbacks
     def reconfigServiceWithBuildbotConfig(self, new_config):
@@ -92,8 +87,7 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
             yield sr.setServiceParent(self)
 
         # reconfig any newly-added change sources, as well as existing
-        yield service.ReconfigurableServiceMixin.reconfigServiceWithBuildbotConfig(self,
-                                                                                   new_config)
+        yield super().reconfigServiceWithBuildbotConfig(new_config)
 
     def stopService(self):
         if self._buildset_complete_consumer:
@@ -108,7 +102,7 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
             self._change_consumer.stopConsuming()
             self._change_consumer = None
 
-        return service.AsyncMultiService.stopService(self)
+        return super().stopService()
 
     # clean shutdown
 
@@ -152,9 +146,8 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
         # don't use this API. this URL is not supported
         # its here waiting for getURLForThing removal or switch to deferred
         prefix = self.getBuildbotURL()
-        return prefix + "#builders/%s/builds/%d" % (
-            urlquote(builder_name, safe=''),
-            build_number)
+        return prefix + "#builders/{}/builds/{}".format(urlquote(builder_name, safe=''),
+                                                        build_number)
 
     def getURLForBuildrequest(self, buildrequestid):
         prefix = self.getBuildbotURL()
@@ -170,9 +163,7 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
             pass
         if interfaces.IBuilderStatus.providedBy(thing):
             bldr = thing
-            return prefix + "#builders/%s" % (
-                urlquote(bldr.getName(), safe=''),
-            )
+            return prefix + "#builders/{}".format(urlquote(bldr.getName(), safe=''))
         if interfaces.IBuildStatus.providedBy(thing):
             build = thing
             bldr = build.getBuilder()
@@ -185,7 +176,7 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
             step = thing
             build = step.getBuild()
             bldr = build.getBuilder()
-            return prefix + "#builders/%s/builds/%d/steps/%s" % (
+            return prefix + "#builders/{}/builds/{}/steps/{}".format(
                 urlquote(bldr.getName(), safe=''),
                 build.getNumber(),
                 urlquote(step.getName(), safe=''))
@@ -194,16 +185,15 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
         # IWorkerStatus
         if interfaces.IWorkerStatus.providedBy(thing):
             worker = thing
-            return prefix + "#workers/%s" % (
-                urlquote(worker.getName(), safe=''),
-            )
+            return prefix + "#workers/{}".format(urlquote(worker.getName(), safe=''))
 
         # IStatusEvent
         if interfaces.IStatusEvent.providedBy(thing):
             # TODO: this is goofy, create IChange or something
             if isinstance(thing, changes.Change):
                 change = thing
-                return "%s#changes/%d" % (prefix, change.number)
+                return "{}#changes/{}".format(prefix, change.number)
+        return None
 
     def getChangeSources(self):
         return list(self.master.change_svc)
@@ -246,7 +236,7 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
         return self.botmaster.builders[name].builder_status
 
     def getWorkerNames(self):
-        return list(iteritems(self.workers.workers))
+        return list(self.workers.workers.items())
 
     def getWorker(self, workername):
         return self.workers.workers[workername].worker_status
@@ -348,8 +338,8 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
         builder_status.setTags(tags)
         builder_status.description = description
         builder_status.master = self.master
-        builder_status.basedir = os.path.join(bytes2NativeString(self.basedir),
-                                              bytes2NativeString(basedir))
+        builder_status.basedir = os.path.join(bytes2unicode(self.basedir),
+                                              bytes2unicode(basedir))
         builder_status.name = name  # it might have been updated
         builder_status.status = self
 
@@ -391,7 +381,7 @@ class Status(service.ReconfigurableServiceMixin, service.AsyncMultiService):
         builderid = msg['builderid']
         buildername = None
         # convert builderid to buildername
-        for b in itervalues(self.botmaster.builders):
+        for b in self.botmaster.builders.values():
             if builderid == (yield b.getBuilderId()):
                 buildername = b.name
                 break

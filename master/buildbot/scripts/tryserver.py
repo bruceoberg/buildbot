@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import os
 import sys
@@ -35,7 +33,7 @@ def tryserver(config):
     job = unicode2bytes(job)
     m.update(job)
     jobhash = m.hexdigest()
-    fn = "%s-%s" % (timestring, jobhash)
+    fn = "{}-{}".format(timestring, jobhash)
     tmpfile = os.path.join(jobdir, "tmp", fn)
     newfile = os.path.join(jobdir, "new", fn)
     with open(tmpfile, "wb") as f:

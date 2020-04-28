@@ -14,10 +14,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.builtins import range
-
 import sys
 import types
 
@@ -40,7 +36,7 @@ with mock.patch.dict(sys.modules, {'ldap3': fake_ldap}):
     from buildbot.www import ldapuserinfo
 
 
-class FakeLdap(object):
+class FakeLdap:
 
     def __init__(self):
         def search(base, filterstr='f', scope=None, attributes=None):
@@ -83,7 +79,7 @@ class CommonTestCase(unittest.TestCase):
     def assertSearchCalledWith(self, exp):
         got = self.userInfoProvider.search.call_args_list
         self.assertEqual(len(exp), len(got))
-        for i in range(len(exp)):
+        for i, val in enumerate(exp):
             self.assertEqual(exp[i][0][0], got[i][0][1])
             self.assertEqual(exp[i][0][1], got[i][0][2])
             self.assertEqual(exp[i][0][2], got[i][1]['attributes'])
@@ -109,8 +105,8 @@ class LdapUserInfo(CommonTestCase):
         try:
             yield self.userInfoProvider.getUserInfo("me")
         except KeyError as e:
-            self.assertEqual(
-                repr(e), "KeyError('ldap search \"accpattern\" returned 0 results',)")
+            self.assertRegex(
+                repr(e), r"KeyError\('ldap search \"accpattern\" returned 0 results',?\)")
         else:
             self.fail("should have raised a key error")
 
@@ -142,12 +138,12 @@ class LdapUserInfo(CommonTestCase):
     @defer.inlineCallbacks
     def test_updateUserInfoGroupsUnicodeDn(self):
         # In case of non Ascii DN, ldap3 lib returns an UTF-8 str
-        dn = u"cn=Sébastien,dc=example,dc=org"
+        dn = "cn=Sébastien,dc=example,dc=org"
         # If groupMemberPattern is an str, and dn is not decoded,
         # the resulting filter will be an str, leading to UnicodeDecodeError
         # in ldap3.protocol.convert.validate_assertion_value()
         # So we use an unicode pattern:
-        self.userInfoProvider.groupMemberPattern = u'(member=%(dn)s)'
+        self.userInfoProvider.groupMemberPattern = '(member=%(dn)s)'
         self.makeSearchSideEffect([[(dn, {"accountFullName": "me too",
                                           "accountEmail": "mee@too"})],
                                    [("cn", {"groupName": ["group"]}),
@@ -166,7 +162,7 @@ class LdapUserInfo(CommonTestCase):
         self.assertSearchCalledWith([
             (('accbase', 'avatar', ['picture']), {}),
         ])
-        defer.returnValue(res)
+        return res
 
     @defer.inlineCallbacks
     def test_getUserAvatarPNG(self):
@@ -223,33 +219,30 @@ class LdapUserInfoNoGroups(CommonTestCase):
 class Config(unittest.TestCase):
 
     def test_missing_group_name(self):
-        self.assertRaises(ValueError,
-                          ldapuserinfo.LdapUserInfo,
-                          groupMemberPattern="member=%(dn)s",
-                          groupBase="grpbase",
-                          uri="ldap://uri", bindUser="user", bindPw="pass",
-                          accountBase="accbase",
-                          accountPattern="accpattern",
-                          accountFullName="accountFullName",
-                          accountEmail="accountEmail")
+        with self.assertRaises(ValueError):
+            ldapuserinfo.LdapUserInfo(groupMemberPattern="member=%(dn)s",
+                                      groupBase="grpbase", uri="ldap://uri",
+                                      bindUser="user", bindPw="pass",
+                                      accountBase="accbase",
+                                      accountPattern="accpattern",
+                                      accountFullName="accountFullName",
+                                      accountEmail="accountEmail")
 
     def test_missing_group_base(self):
-        self.assertRaises(ValueError,
-                          ldapuserinfo.LdapUserInfo,
-                          groupMemberPattern="member=%(dn)s",
-                          groupName="group",
-                          uri="ldap://uri", bindUser="user", bindPw="pass",
-                          accountBase="accbase",
-                          accountPattern="accpattern",
-                          accountFullName="accountFullName",
-                          accountEmail="accountEmail")
+        with self.assertRaises(ValueError):
+            ldapuserinfo.LdapUserInfo(groupMemberPattern="member=%(dn)s",
+                                      groupName="group",
+                                      uri="ldap://uri", bindUser="user",
+                                      bindPw="pass", accountBase="accbase",
+                                      accountPattern="accpattern",
+                                      accountFullName="accountFullName",
+                                      accountEmail="accountEmail")
 
     def test_missing_two_params(self):
-        self.assertRaises(ValueError,
-                          ldapuserinfo.LdapUserInfo,
-                          groupName="group",
-                          uri="ldap://uri", bindUser="user", bindPw="pass",
-                          accountBase="accbase",
-                          accountPattern="accpattern",
-                          accountFullName="accountFullName",
-                          accountEmail="accountEmail")
+        with self.assertRaises(ValueError):
+            ldapuserinfo.LdapUserInfo(groupName="group", uri="ldap://uri",
+                                      bindUser="user", bindPw="pass",
+                                      accountBase="accbase",
+                                      accountPattern="accpattern",
+                                      accountFullName="accountFullName",
+                                      accountEmail="accountEmail")

@@ -13,16 +13,12 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 from twisted.internet import defer
 from twisted.trial import unittest
 
 from buildbot.db import builders
 from buildbot.db import tags
-from buildbot.test.fake import fakedb
-from buildbot.test.fake import fakemaster
+from buildbot.test import fakedb
 from buildbot.test.util import connector_component
 from buildbot.test.util import interfaces
 from buildbot.test.util import validation
@@ -79,8 +75,9 @@ class Tests(interfaces.InterfaceTests):
             fakedb.Builder(id=8, name='some:builder8'),
         ])
 
-        yield self.db.builders.updateBuilderInfo(7, u'a string which describe the builder', [u'cat1', u'cat2'])
-        yield self.db.builders.updateBuilderInfo(8, u'a string which describe the builder', [])
+        yield self.db.builders.updateBuilderInfo(7, 'a string which describe the builder',
+                                                 ['cat1', 'cat2'])
+        yield self.db.builders.updateBuilderInfo(8, 'a string which describe the builder', [])
         builderdict7 = yield self.db.builders.getBuilder(7)
         validation.verifyDbDict(self, 'builderdict', builderdict7)
         builderdict7['tags'].sort()  # order is unspecified
@@ -250,32 +247,27 @@ class RealTests(Tests):
     pass
 
 
-class TestFakeDB(unittest.TestCase, Tests):
+class TestFakeDB(unittest.TestCase, connector_component.FakeConnectorComponentMixin, Tests):
 
+    @defer.inlineCallbacks
     def setUp(self):
-        self.master = fakemaster.make_master(wantDb=True, testcase=self)
-        self.db = self.master.db
-        self.db.checkForeignKeys = True
-        self.insertTestData = self.db.insertTestData
+        yield self.setUpConnectorComponent()
 
 
 class TestRealDB(unittest.TestCase,
                  connector_component.ConnectorComponentMixin,
                  RealTests):
 
+    @defer.inlineCallbacks
     def setUp(self):
-        d = self.setUpConnectorComponent(
+        yield self.setUpConnectorComponent(
             table_names=['builders', 'masters', 'builder_masters',
                          'builders_tags', 'tags'])
 
-        @d.addCallback
-        def finish_setup(_):
-            self.db.builders = builders.BuildersConnectorComponent(self.db)
-            self.db.tags = tags.TagsConnectorComponent(self.db)
-            self.master = self.db.master
-            self.master.db = self.db
-
-        return d
+        self.db.builders = builders.BuildersConnectorComponent(self.db)
+        self.db.tags = tags.TagsConnectorComponent(self.db)
+        self.master = self.db.master
+        self.master.db = self.db
 
     def tearDown(self):
         return self.tearDownConnectorComponent()

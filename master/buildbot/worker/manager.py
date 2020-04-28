@@ -13,19 +13,16 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 from twisted.python import log
 
 from buildbot.process.measured_service import MeasuredBuildbotServiceManager
 from buildbot.util import misc
-from buildbot.util import service
 from buildbot.worker.protocols import pb as bbpb
 
 
-class WorkerRegistration(object):
+class WorkerRegistration:
 
     __slots__ = ['master', 'worker', 'pbReg']
 
@@ -34,7 +31,7 @@ class WorkerRegistration(object):
         self.worker = worker
 
     def __repr__(self):
-        return "<%s for %r>" % (self.__class__.__name__, self.worker.workername)
+        return "<{} for {}>".format(self.__class__.__name__, repr(self.worker.workername))
 
     @defer.inlineCallbacks
     def unregister(self):
@@ -67,7 +64,7 @@ class WorkerManager(MeasuredBuildbotServiceManager):
     reconfig_priority = 127
 
     def __init__(self, master):
-        service.AsyncMultiService.__init__(self)
+        super().__init__()
 
         self.pb = bbpb.Listener()
         self.pb.setServiceParent(master)
@@ -105,8 +102,8 @@ class WorkerManager(MeasuredBuildbotServiceManager):
     @defer.inlineCallbacks
     def newConnection(self, conn, workerName):
         if workerName in self.connections:
-            log.msg("Got duplication connection from '%s'"
-                    " starting arbitration procedure" % workerName)
+            log.msg(("Got duplication connection from '{}'"
+                     " starting arbitration procedure").format(workerName))
             old_conn = self.connections[workerName]
             try:
                 yield misc.cancelAfter(self.PING_TIMEOUT,
@@ -116,24 +113,22 @@ class WorkerManager(MeasuredBuildbotServiceManager):
                 raise RuntimeError("rejecting duplicate worker")
             except defer.CancelledError:
                 old_conn.loseConnection()
-                log.msg("Connected worker '%s' ping timed out after %d seconds"
-                        % (workerName, self.PING_TIMEOUT))
+                log.msg("Connected worker '{}' ping timed out after {} seconds".format(workerName,
+                        self.PING_TIMEOUT))
             except RuntimeError:
                 raise
             except Exception as e:
                 old_conn.loseConnection()
-                log.msg("Got error while trying to ping connected worker %s:"
-                        "%s" % (workerName, e))
-            log.msg("Old connection for '%s' was lost, accepting new" %
-                    workerName)
+                log.msg("Got error while trying to ping connected worker {}:{}".format(workerName,
+                                                                                       e))
+            log.msg("Old connection for '{}' was lost, accepting new".format(workerName))
 
         try:
             yield conn.remotePrint(message="attached")
             info = yield conn.remoteGetWorkerInfo()
-            log.msg("Got workerinfo from '%s'" % workerName)
+            log.msg("Got workerinfo from '{}'".format(workerName))
         except Exception as e:
-            log.msg("Failed to communicate with worker '%s'\n"
-                    "%s" % (workerName, e))
+            log.msg("Failed to communicate with worker '{}'\n{}".format(workerName, e))
             raise
 
         conn.info = info
@@ -144,4 +139,4 @@ class WorkerManager(MeasuredBuildbotServiceManager):
         conn.notifyOnDisconnect(remove)
 
         # accept the connection
-        defer.returnValue(True)
+        return True

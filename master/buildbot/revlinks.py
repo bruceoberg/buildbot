@@ -13,17 +13,13 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import text_type
-
 import re
 
 
-class RevlinkMatch(object):
+class RevlinkMatch:
 
     def __init__(self, repo_urls, revlink):
-        if isinstance(repo_urls, (str, text_type)):
+        if isinstance(repo_urls, str):
             repo_urls = [repo_urls]
         self.repo_urls = [re.compile(url) for url in repo_urls]
         self.revlink = revlink
@@ -33,6 +29,7 @@ class RevlinkMatch(object):
             m = url.match(repo)
             if m:
                 return m.expand(self.revlink) % rev
+        return None
 
 
 GithubRevlink = RevlinkMatch(
@@ -47,8 +44,8 @@ GithubRevlink = RevlinkMatch(
 class GitwebMatch(RevlinkMatch):
 
     def __init__(self, repo_urls, revlink):
-        RevlinkMatch.__init__(self, repo_urls=repo_urls,
-                              revlink=revlink + r'?p=\g<repo>;a=commit;h=%s')
+        super().__init__(repo_urls=repo_urls,
+                         revlink=revlink + r'?p=\g<repo>;a=commit;h=%s')
 
 
 SourceforgeGitRevlink = GitwebMatch(
@@ -59,7 +56,8 @@ SourceforgeGitRevlink = GitwebMatch(
     revlink=r'http://\1.git.sourceforge.net/git/gitweb.cgi')
 
 # SourceForge recently upgraded to another platform called Allura
-# See introduction: https://sourceforge.net/p/forge/documentation/Classic%20vs%20New%20SourceForge%20projects/
+# See introduction:
+# https://sourceforge.net/p/forge/documentation/Classic%20vs%20New%20SourceForge%20projects/
 # And as reference:
 # https://sourceforge.net/p/forge/community-docs/SVN%20and%20project%20upgrades/
 SourceforgeGitRevlink_AlluraPlatform = RevlinkMatch(
@@ -70,7 +68,7 @@ SourceforgeGitRevlink_AlluraPlatform = RevlinkMatch(
     revlink=r'https://sourceforge.net/p/\1/ci/%s/')
 
 
-class RevlinkMultiplexer(object):
+class RevlinkMultiplexer:
 
     def __init__(self, *revlinks):
         self.revlinks = revlinks
@@ -80,6 +78,7 @@ class RevlinkMultiplexer(object):
             url = revlink(rev, repo)
             if url:
                 return url
+        return None
 
 
 default_revlink_matcher = RevlinkMultiplexer(GithubRevlink,

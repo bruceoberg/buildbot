@@ -13,18 +13,26 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 from twisted.python import failure
 from twisted.python import log
 
+from buildbot.util import deferwaiter
 from buildbot.util import service
 
 
 class MQBase(service.AsyncService):
     name = 'mq-implementation'
+
+    def __init__(self):
+        super().__init__()
+        self._deferwaiter = deferwaiter.DeferWaiter()
+
+    @defer.inlineCallbacks
+    def stopService(self):
+        yield self._deferwaiter.wait()
+        yield super().stopService()
 
     @defer.inlineCallbacks
     def waitUntilEvent(self, filter, check_callback):
@@ -39,10 +47,13 @@ class MQBase(service.AsyncService):
         else:
             res = None
         yield buildCompleteConsumer.stopConsuming()
-        defer.returnValue(res)
+        return res
+
+    def invokeQref(self, qref, routingKey, data):
+        self._deferwaiter.add(qref.invoke(routingKey, data))
 
 
-class QueueRef(object):
+class QueueRef:
 
     __slots__ = ['callback']
 
@@ -50,17 +61,20 @@ class QueueRef(object):
         self.callback = callback
 
     def invoke(self, routing_key, data):
+        # Potentially returns a Deferred
         if not self.callback:
-            return
+            return None
 
         try:
             x = self.callback(routing_key, data)
         except Exception:
             log.err(failure.Failure(), 'while invoking %r' % (self.callback,))
-            return
+            return None
         if isinstance(x, defer.Deferred):
             x.addErrback(log.err, 'while invoking %r' % (self.callback,))
+        return x
 
     def stopConsuming(self):
-        # subclasses should set self.callback to None in this method
+        # This method may return a Deferred.
+        # subclasses should set self.callback to None in this method.
         raise NotImplementedError

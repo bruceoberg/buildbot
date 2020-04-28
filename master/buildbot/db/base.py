@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import text_type
-
 import hashlib
 import itertools
 
@@ -25,7 +21,7 @@ import sqlalchemy as sa
 from buildbot.util import unicode2bytes
 
 
-class DBConnectorComponent(object):
+class DBConnectorComponent:
     # A fixed component of the DBConnector, handling one particular aspect of
     # the database.  Instances of subclasses are assigned to attributes of the
     # DBConnector object, so that they are available at e.g.,
@@ -60,20 +56,35 @@ class DBConnectorComponent(object):
                 self.checkLength = lambda col, value: None
                 return
 
-        assert col.type.length, "column %s does not have a length" % (col,)
+        assert col.type.length, "column {} does not have a length".format(col)
         if value and len(value) > col.type.length:
             raise RuntimeError(
-                "value for column %s is greater than max of %d characters: %s"
-                % (col, col.type.length, value))
+                "value for column {} is greater than max of {} characters: {}".format(
+                        col, col.type.length, value))
 
     def ensureLength(self, col, value):
-        assert col.type.length, "column %s does not have a length" % (col,)
+        assert col.type.length, "column {} does not have a length".format(col)
         if value and len(value) > col.type.length:
-            value = value[:col.type.length // 2] + hashlib.sha1(unicode2bytes(value)).hexdigest()[:col.type.length // 2]
+            value = value[:col.type.length // 2] + \
+                    hashlib.sha1(unicode2bytes(value)).hexdigest()[:col.type.length // 2]
         return value
 
+    # returns a Deferred that returns a value
     def findSomethingId(self, tbl, whereclause, insert_values,
                         _race_hook=None, autoCreate=True):
+        d = self.findOrCreateSomethingId(tbl, whereclause, insert_values,
+                                         _race_hook, autoCreate)
+        d.addCallback(lambda pair: pair[0])
+        return d
+
+    def findOrCreateSomethingId(self, tbl, whereclause, insert_values,
+                                _race_hook=None, autoCreate=True):
+        """
+        Find a matching row and if one cannot be found optionally create it.
+        Returns a deferred which resolves to the pair (id, found) where
+        id is the primary key of the matching row and `found` is True if
+        a match was found. `found` will be false if a new row was created.
+        """
         def thd(conn, no_recurse=False):
             # try to find the master
             q = sa.select([tbl.c.id],
@@ -84,16 +95,16 @@ class DBConnectorComponent(object):
 
             # found it!
             if row:
-                return row.id
+                return row.id, True
 
             if not autoCreate:
-                return None
+                return None, False
 
             _race_hook and _race_hook(conn)
 
             try:
                 r = conn.execute(tbl.insert(), [insert_values])
-                return r.inserted_primary_key[0]
+                return r.inserted_primary_key[0], False
             except (sa.exc.IntegrityError, sa.exc.ProgrammingError):
                 # try it all over again, in case there was an overlapping,
                 # identical call, but only retry once.
@@ -106,7 +117,7 @@ class DBConnectorComponent(object):
         def encode(x):
             if x is None:
                 return b'\xf5'
-            elif isinstance(x, text_type):
+            elif isinstance(x, str):
                 return x.encode('utf-8')
             return str(x).encode('utf-8')
 
@@ -121,7 +132,7 @@ class DBConnectorComponent(object):
             yield batch
 
 
-class CachedMethod(object):
+class CachedMethod:
 
     def __init__(self, cache_name, method):
         self.cache_name = cache_name

@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 
@@ -33,14 +31,14 @@ class LogChunkEndpointBase(base.BuildNestingMixin, base.Endpoint):
         else:
             stepid = yield self.getStepid(kwargs)
             if stepid is None:
-                defer.returnValue((None, None))
+                return (None, None)
             dbdict = yield self.master.db.logs.getLogBySlug(stepid,
                                                             kwargs.get('log_slug'))
             if not dbdict:
-                defer.returnValue((None, None))
+                return (None, None)
             logid = dbdict['id']
 
-        defer.returnValue((logid, dbdict))
+        return (logid, dbdict)
 
 
 class LogChunkEndpoint(LogChunkEndpointBase):
@@ -61,7 +59,7 @@ class LogChunkEndpoint(LogChunkEndpointBase):
     def get(self, resultSpec, kwargs):
         logid, dbdict = yield self.getLogIdAndDbDictFromKwargs(kwargs)
         if logid is None:
-            return
+            return None
         firstline = int(resultSpec.offset or 0)
         lastline = None if resultSpec.limit is None else firstline + \
             int(resultSpec.limit) - 1
@@ -72,19 +70,18 @@ class LogChunkEndpoint(LogChunkEndpointBase):
             if not dbdict:
                 dbdict = yield self.master.db.logs.getLog(logid)
             if not dbdict:
-                return
+                return None
             lastline = int(max(0, dbdict['num_lines'] - 1))
 
         # bounds checks
         if firstline < 0 or lastline < 0 or firstline > lastline:
-            return
+            return None
 
         logLines = yield self.master.db.logs.getLogLines(
             logid, firstline, lastline)
-        defer.returnValue({
-            'logid': logid,
-            'firstline': firstline,
-            'content': logLines})
+        return {'logid': logid,
+                'firstline': firstline,
+                'content': logLines}
 
 
 class RawLogChunkEndpoint(LogChunkEndpointBase):
@@ -106,12 +103,12 @@ class RawLogChunkEndpoint(LogChunkEndpointBase):
     def get(self, resultSpec, kwargs):
         logid, dbdict = yield self.getLogIdAndDbDictFromKwargs(kwargs)
         if logid is None:
-            return
+            return None
 
         if not dbdict:
             dbdict = yield self.master.db.logs.getLog(logid)
             if not dbdict:
-                return
+                return None
         lastline = max(0, dbdict['num_lines'] - 1)
 
         logLines = yield self.master.db.logs.getLogLines(
@@ -120,10 +117,9 @@ class RawLogChunkEndpoint(LogChunkEndpointBase):
         if dbdict['type'] == 's':
             logLines = "\n".join([line[1:] for line in logLines.splitlines()])
 
-        defer.returnValue({
-            'raw': logLines,
-            'mime-type': u'text/html' if dbdict['type'] == 'h' else u'text/plain',
-            'filename': dbdict['slug']})
+        return {'raw': logLines,
+                'mime-type': 'text/html' if dbdict['type'] == 'h' else 'text/plain',
+                'filename': dbdict['slug']}
 
 
 class LogChunk(base.ResourceType):

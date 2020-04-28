@@ -13,14 +13,13 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import migrate
 import migrate.versioning.repository
 import sqlalchemy as sa
 from migrate import exceptions  # pylint: disable=ungrouped-imports
 
+from twisted.internet import defer
 from twisted.python import log
 from twisted.python import util
 
@@ -65,7 +64,8 @@ class Model(base.DBConnectorComponent):
     # * sqlalchemy does not handle sa.Boolean very well on MySQL or Postgres;
     #   use sa.SmallInteger instead
 
-    # build requests
+    # Tables related to build requests
+    # --------------------------------
 
     # A BuildRequest is a request for a particular build to be performed.  Each
     # BuildRequest is a part of a Buildset.  BuildRequests are claimed by
@@ -111,11 +111,12 @@ class Model(base.DBConnectorComponent):
                   nullable=False),
         sa.Column('masterid', sa.Integer,
                   sa.ForeignKey('masters.id', ondelete='CASCADE'),
-                  index=True, nullable=True),
+                  index=True, nullable=False),
         sa.Column('claimed_at', sa.Integer, nullable=False),
     )
 
-    # builds
+    # Tables related to builds
+    # ------------------------
 
     # This table contains the build properties
     build_properties = sautils.Table(
@@ -135,7 +136,8 @@ class Model(base.DBConnectorComponent):
         sa.Column('id', sa.Integer, primary_key=True),
         sa.Column('number', sa.Integer, nullable=False),
         sa.Column('builderid', sa.Integer,
-                  sa.ForeignKey('builders.id', ondelete='CASCADE')),
+                  sa.ForeignKey('builders.id', ondelete='CASCADE'),
+                  nullable=False),
         # note that there is 1:N relationship here.
         # In case of worker loss, build has results RETRY
         # and buildrequest is unclaimed.
@@ -149,7 +151,8 @@ class Model(base.DBConnectorComponent):
         # worker which performed this build
         # keep nullable to support worker-free builds
         sa.Column('workerid', sa.Integer,
-                  sa.ForeignKey('workers.id', ondelete='CASCADE')),
+                  sa.ForeignKey('workers.id', ondelete='SET NULL'),
+                  nullable=True),
         # master which controlled this build
         sa.Column('masterid', sa.Integer,
                   sa.ForeignKey('masters.id', ondelete='CASCADE'),
@@ -161,7 +164,8 @@ class Model(base.DBConnectorComponent):
         sa.Column('results', sa.Integer),
     )
 
-    # steps
+    # Tables related to steps
+    # -----------------------
 
     steps = sautils.Table(
         'steps', metadata,
@@ -169,7 +173,8 @@ class Model(base.DBConnectorComponent):
         sa.Column('number', sa.Integer, nullable=False),
         sa.Column('name', sa.String(50), nullable=False),
         sa.Column('buildid', sa.Integer,
-                  sa.ForeignKey('builds.id', ondelete='CASCADE')),
+                  sa.ForeignKey('builds.id', ondelete='CASCADE'),
+                  nullable=False),
         sa.Column('started_at', sa.Integer),
         sa.Column('complete_at', sa.Integer),
         sa.Column('state_string', sa.Text, nullable=False),
@@ -179,7 +184,8 @@ class Model(base.DBConnectorComponent):
             'hidden', sa.SmallInteger, nullable=False, server_default='0'),
     )
 
-    # logs
+    # Tables related to logs
+    # ----------------------
 
     logs = sautils.Table(
         'logs', metadata,
@@ -187,7 +193,8 @@ class Model(base.DBConnectorComponent):
         sa.Column('name', sa.Text, nullable=False),
         sa.Column('slug', sa.String(50), nullable=False),
         sa.Column('stepid', sa.Integer,
-                  sa.ForeignKey('steps.id', ondelete='CASCADE')),
+                  sa.ForeignKey('steps.id', ondelete='CASCADE'),
+                  nullable=False),
         sa.Column('complete', sa.SmallInteger, nullable=False),
         sa.Column('num_lines', sa.Integer, nullable=False),
         # 's' = stdio, 't' = text, 'h' = html, 'd' = deleted
@@ -197,7 +204,8 @@ class Model(base.DBConnectorComponent):
     logchunks = sautils.Table(
         'logchunks', metadata,
         sa.Column('logid', sa.Integer,
-                  sa.ForeignKey('logs.id', ondelete='CASCADE')),
+                  sa.ForeignKey('logs.id', ondelete='CASCADE'),
+                  nullable=False),
         # 0-based line number range in this chunk (inclusive); note that for
         # HTML logs, this counts lines of HTML, not lines of rendered output
         sa.Column('first_line', sa.Integer, nullable=False),
@@ -208,7 +216,8 @@ class Model(base.DBConnectorComponent):
         sa.Column('compressed', sa.SmallInteger, nullable=False),
     )
 
-    # buildsets
+    # Tables related to buildsets
+    # ---------------------------
 
     # This table contains input properties for buildsets
     buildset_properties = sautils.Table(
@@ -248,13 +257,15 @@ class Model(base.DBConnectorComponent):
         # http://docs.sqlalchemy.org/en/latest/orm/relationships.html#rows-that-point-to-themselves-mutually-dependent-rows
         sa.Column('parent_buildid', sa.Integer,
                   sa.ForeignKey('builds.id', use_alter=True,
-                                name='parent_buildid', ondelete='CASCADE')),
+                                name='parent_buildid', ondelete='SET NULL'),
+                  nullable=True),
         # text describing what is the relationship with the build
         # could be 'triggered from', 'rebuilt from', 'inherited from'
         sa.Column('parent_relationship', sa.Text),
     )
 
-    # changesources
+    # Tables related to change sources
+    # --------------------------------
 
     # The changesources table gives a unique identifier to each ChangeSource.  It
     # also links to other tables used to ensure only one master runs each
@@ -284,7 +295,9 @@ class Model(base.DBConnectorComponent):
                   nullable=False),
     )
 
-    # workers
+    # Tables related to workers
+    # -------------------------
+
     workers = sautils.Table(
         "workers", metadata,
         sa.Column("id", sa.Integer, primary_key=True),
@@ -319,7 +332,8 @@ class Model(base.DBConnectorComponent):
                   nullable=False),
     )
 
-    # changes
+    # Tables related to changes
+    # ----------------------------
 
     # Files touched in changes
     change_files = sautils.Table(
@@ -364,6 +378,9 @@ class Model(base.DBConnectorComponent):
         # author's name (usually an email address)
         sa.Column('author', sa.String(255), nullable=False),
 
+        # committer's name
+        sa.Column('committer', sa.String(255), nullable=True),
+
         # commit comment
         sa.Column('comments', sa.Text, nullable=False),
 
@@ -400,18 +417,20 @@ class Model(base.DBConnectorComponent):
 
         # the sourcestamp this change brought the codebase to
         sa.Column('sourcestampid', sa.Integer,
-                  sa.ForeignKey('sourcestamps.id', ondelete='CASCADE')),
+                  sa.ForeignKey('sourcestamps.id', ondelete='CASCADE'),
+                  nullable=False),
 
         # The parent of the change
         # Even if for the moment there's only 1 parent for a change, we use plural here because
         # somedays a change will have multiple parent. This way we don't need
         # to change the API
         sa.Column('parent_changeids', sa.Integer,
-                  sa.ForeignKey('changes.changeid', ondelete='CASCADE'),
+                  sa.ForeignKey('changes.changeid', ondelete='SET NULL'),
                   nullable=True),
     )
 
-    # sourcestamps
+    # Tables related to sourcestamps
+    # ------------------------------
 
     # Patches for SourceStamps that were generated through the try mechanism
     patches = sautils.Table(
@@ -455,7 +474,8 @@ class Model(base.DBConnectorComponent):
 
         # the patch to apply to generate this source code
         sa.Column('patchid', sa.Integer,
-                  sa.ForeignKey('patches.id', ondelete='CASCADE')),
+                  sa.ForeignKey('patches.id', ondelete='CASCADE'),
+                  nullable=True),
 
         # the repository from which this source should be checked out
         sa.Column('repository', sa.String(length=512), nullable=False,
@@ -485,7 +505,8 @@ class Model(base.DBConnectorComponent):
                   nullable=False),
     )
 
-    # schedulers
+    # Tables related to schedulers
+    # ----------------------------
 
     # The schedulers table gives a unique identifier to each scheduler.  It
     # also links to other tables used to ensure only one master runs each
@@ -527,14 +548,17 @@ class Model(base.DBConnectorComponent):
     scheduler_changes = sautils.Table(
         'scheduler_changes', metadata,
         sa.Column('schedulerid', sa.Integer,
-                  sa.ForeignKey('schedulers.id', ondelete='CASCADE')),
+                  sa.ForeignKey('schedulers.id', ondelete='CASCADE'),
+                  nullable=False),
         sa.Column('changeid', sa.Integer,
-                  sa.ForeignKey('changes.changeid', ondelete='CASCADE')),
+                  sa.ForeignKey('changes.changeid', ondelete='CASCADE'),
+                  nullable=False),
         # true (nonzero) if this change is important to this scheduler
         sa.Column('important', sa.Integer),
     )
 
-    # builders
+    # Tables related to builders
+    # --------------------------
 
     builders = sautils.Table(
         'builders', metadata,
@@ -561,7 +585,9 @@ class Model(base.DBConnectorComponent):
                   nullable=False),
     )
 
-    # tags
+    # Tables related to tags
+    # ----------------------
+
     tags = sautils.Table(
         'tags', metadata,
         sa.Column('id', sa.Integer, primary_key=True),
@@ -583,7 +609,8 @@ class Model(base.DBConnectorComponent):
                   nullable=False),
     )
 
-    # objects
+    # Tables related to objects
+    # -------------------------
 
     # This table uniquely identifies objects that need to maintain state across
     # invocations.
@@ -611,7 +638,8 @@ class Model(base.DBConnectorComponent):
         sa.Column("value_json", sa.Text, nullable=False),
     )
 
-    # users
+    # Tables related to users
+    # -----------------------
 
     # This table identifies individual users, and contains buildbot-specific
     # information about those users.
@@ -646,7 +674,8 @@ class Model(base.DBConnectorComponent):
         sa.Column("attr_data", sa.String(128), nullable=False),
     )
 
-    # masters
+    # Tables related to masters
+    # -------------------------
 
     masters = sautils.Table(
         "masters", metadata,
@@ -666,7 +695,8 @@ class Model(base.DBConnectorComponent):
         sa.Column('last_active', sa.Integer, nullable=False),
     )
 
-    # indexes
+    # Indexes
+    # -------
 
     sa.Index('buildrequests_buildsetid', buildrequests.c.buildsetid)
     sa.Index('buildrequests_builderid', buildrequests.c.builderid)
@@ -750,6 +780,8 @@ class Model(base.DBConnectorComponent):
              unique=True)
     sa.Index('steps_name', steps.c.buildid, steps.c.name,
              unique=True)
+    sa.Index('steps_started_at',
+             steps.c.started_at)
     sa.Index('logs_slug', logs.c.stepid, logs.c.slug, unique=True)
     sa.Index('logchunks_firstline', logchunks.c.logid, logchunks.c.first_line)
     sa.Index('logchunks_lastline', logchunks.c.logid, logchunks.c.last_line)
@@ -781,9 +813,8 @@ class Model(base.DBConnectorComponent):
                  name='parent_changeids')),
     ]
 
-    #
-    # migration support
-    #
+    # Migration support
+    # -----------------
 
     # this is a bit more complicated than might be expected because the first
     # seven database versions were once implemented using a homespun migration
@@ -793,6 +824,7 @@ class Model(base.DBConnectorComponent):
 
     repo_path = util.sibpath(__file__, "migrate")
 
+    @defer.inlineCallbacks
     def is_current(self):
         if ControlledSchema is None:
             # this should have been caught earlier by enginestrategy.py with a
@@ -812,14 +844,17 @@ class Model(base.DBConnectorComponent):
                 return False
 
             return db_version == repo_version
-        return self.db.pool.do_with_engine(thd)
+        ret = yield self.db.pool.do_with_engine(thd)
+        return ret
 
+    # returns a Deferred that returns None
     def create(self):
         # this is nice and simple, but used only for tests
         def thd(engine):
             self.metadata.create_all(bind=engine)
         return self.db.pool.do_with_engine(thd)
 
+    @defer.inlineCallbacks
     def upgrade(self):
 
         # here, things are a little tricky.  If we have a 'version' table, then
@@ -830,7 +865,7 @@ class Model(base.DBConnectorComponent):
 
         def table_exists(engine, tbl):
             try:
-                r = engine.execute("select * from %s limit 1" % tbl)
+                r = engine.execute("select * from {} limit 1".format(tbl))
                 r.close()
                 return True
             except Exception:
@@ -845,8 +880,7 @@ class Model(base.DBConnectorComponent):
             changeset = schema.changeset(None)
             with sautils.withoutSqliteForeignKeys(engine):
                 for version, change in changeset:
-                    log.msg('migrating schema version %s -> %d'
-                            % (version, version + 1))
+                    log.msg('migrating schema version {} -> {}'.format(version, version + 1))
                     schema.runchange(version, change, 1)
 
         def check_sqlalchemy_migrate_version():
@@ -864,10 +898,10 @@ class Model(base.DBConnectorComponent):
                 except Exception:
                     version = "0.0"
             version_tup = tuple(map(int, version.split('-', 1)[0].split('.')))
-            log.msg("using SQLAlchemy-Migrate version %s" % (version,))
+            log.msg("using SQLAlchemy-Migrate version {}".format(version))
             if version_tup < (0, 6, 1):
-                raise RuntimeError("You are using SQLAlchemy-Migrate %s. "
-                                   "The minimum version is 0.6.1." % (version,))
+                raise RuntimeError(("You are using SQLAlchemy-Migrate {}. "
+                                    "The minimum version is 0.6.1.").format(version))
 
         def version_control(engine, version=None):
             ControlledSchema.create(engine, self.repo_path, version)
@@ -904,4 +938,4 @@ class Model(base.DBConnectorComponent):
                 version_control(engine, repo.latest)
 
         check_sqlalchemy_migrate_version()
-        return self.db.pool.do_with_engine(thd)
+        yield self.db.pool.do_with_engine(thd)

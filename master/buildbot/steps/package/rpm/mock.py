@@ -17,8 +17,6 @@
 Steps and objects related to mock building.
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import re
 
@@ -36,7 +34,7 @@ class MockStateObserver(logobserver.LogLineObserver):
         if m:
             state = m.group(1)
             if not state == 'end':
-                self.step.descriptionSuffix = ["[%s]" % m.group(1)]
+                self.step.descriptionSuffix = ["[{}]".format(m.group(1))]
             else:
                 self.step.descriptionSuffix = None
             self.step.step_status.setText(self.step.describe(False))
@@ -73,7 +71,7 @@ class Mock(ShellCommand):
         @type kwargs: dict
         @param kwargs: All further keyword arguments.
         """
-        ShellCommand.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         if root:
             self.root = root
         if resultdir:
@@ -100,13 +98,16 @@ class Mock(ShellCommand):
         self.addLogObserver('state.log', MockStateObserver())
 
         cmd = remotecommand.RemoteCommand('rmdir', {'dir':
-                                                    [self.build.path_module.join('build', self.logfiles[l])
+                                                    [self.build.path_module.join('build',
+                                                                                 self.logfiles[l])
                                                      for l in self.mock_logfiles]})
         d = self.runCommand(cmd)
+        # must resolve super() outside of the callback context.
+        super_ = super()
 
         @d.addCallback
         def removeDone(cmd):
-            ShellCommand.start(self)
+            super_.start()
         d.addErrback(self.failed)
 
 
@@ -136,7 +137,7 @@ class MockBuildSRPM(Mock):
         @type kwargs: dict
         @param kwargs: All further keyword arguments.
         """
-        Mock.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         if spec:
             self.spec = spec
         if sources:
@@ -181,7 +182,7 @@ class MockRebuild(Mock):
         @type kwargs: dict
         @param kwargs: All further keyword arguments.
         """
-        Mock.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         if srpm:
             self.srpm = srpm
 

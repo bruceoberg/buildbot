@@ -13,18 +13,13 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.moves.urllib.parse import urlparse
-from future.utils import iteritems
-from future.utils import text_type
-
 import cgi
 import datetime
 import fnmatch
 import json
 import re
 from contextlib import contextmanager
+from urllib.parse import urlparse
 
 from twisted.internet import defer
 from twisted.python import log
@@ -32,7 +27,6 @@ from twisted.web.error import Error
 
 from buildbot.data import exceptions
 from buildbot.data import resultspec
-from buildbot.util import bytes2NativeString
 from buildbot.util import bytes2unicode
 from buildbot.util import toJson
 from buildbot.util import unicode2bytes
@@ -51,14 +45,14 @@ class BadJsonRpc2(Exception):
         self.jsonrpccode = jsonrpccode
 
 
-class ContentTypeParser(object):
+class ContentTypeParser:
 
     def __init__(self, contenttype):
         self.typeheader = contenttype
 
     def gettype(self):
         mimetype, options = cgi.parse_header(
-            bytes2NativeString(self.typeheader))
+            bytes2unicode(self.typeheader))
         return mimetype
 
 
@@ -75,11 +69,11 @@ class RestRootResource(resource.Resource):
         version_cls.apiVersion = version
 
     def __init__(self, master):
-        resource.Resource.__init__(self, master)
+        super().__init__(master)
 
         min_vers = master.config.www.get('rest_minimum_version', 0)
         latest = max(list(self.version_classes))
-        for version, klass in iteritems(self.version_classes):
+        for version, klass in self.version_classes.items():
             if version < min_vers:
                 continue
             child = klass(master)
@@ -92,7 +86,7 @@ class RestRootResource(resource.Resource):
     def render(self, request):
         request.setHeader(b"content-type", JSON_ENCODED)
         min_vers = self.master.config.www.get('rest_minimum_version', 0)
-        api_versions = dict(('v%d' % v, '%sapi/v%d' % (self.base_url, v))
+        api_versions = dict(('v{}'.format(v), '{}api/v{}'.format(self.base_url, v))
                             for v in self.version_classes
                             if v > min_vers)
         data = json.dumps(dict(api_versions=api_versions))
@@ -129,11 +123,11 @@ class V2RootResource(resource.Resource):
     @defer.inlineCallbacks
     def getEndpoint(self, request, method, params):
         # note that trailing slashes are not allowed
-        request_postpath = tuple(bytes2NativeString(p) for p in request.postpath)
+        request_postpath = tuple(bytes2unicode(p) for p in request.postpath)
         yield self.master.www.assertUserAllowed(request, request_postpath,
                                                 method, params)
         ret = yield self.master.data.getEndpoint(request_postpath)
-        defer.returnValue(ret)
+        return ret
 
     @contextmanager
     def handleErrors(self, writeError):
@@ -183,10 +177,9 @@ class V2RootResource(resource.Resource):
                               JSONRPC_CODES["invalid_request"])
 
         try:
-            data = json.loads(bytes2NativeString(request.content.read()))
+            data = json.loads(bytes2unicode(request.content.read()))
         except Exception as e:
-            raise BadJsonRpc2("JSON parse error: %s" % (str(e),),
-                              JSONRPC_CODES["parse_error"])
+            raise BadJsonRpc2("JSON parse error: {}".format(str(e)), JSONRPC_CODES["parse_error"])
 
         if isinstance(data, list):
             raise BadJsonRpc2("JSONRPC batch requests are not supported",
@@ -197,14 +190,13 @@ class V2RootResource(resource.Resource):
 
         def check(name, types, typename):
             if name not in data:
-                raise BadJsonRpc2("missing key '%s'" % (name,),
-                                  JSONRPC_CODES["invalid_request"])
+                raise BadJsonRpc2("missing key '{}'".format(name), JSONRPC_CODES["invalid_request"])
             if not isinstance(data[name], types):
-                raise BadJsonRpc2("'%s' must be %s" % (name, typename),
+                raise BadJsonRpc2("'{}' must be {}".format(name, typename),
                                   JSONRPC_CODES["invalid_request"])
-        check("jsonrpc", (str, text_type), "a string")
-        check("method", (str, text_type), "a string")
-        check("id", (str, text_type, int, type(None)),
+        check("jsonrpc", (str,), "a string")
+        check("method", (str,), "a string")
+        check("id", (str, int, type(None)),
               "a string, number, or null")
         check("params", (dict,), "an object")
         if data['jsonrpc'] != '2.0':
@@ -218,9 +210,10 @@ class V2RootResource(resource.Resource):
 
         def writeError(msg, errcode=399,
                        jsonrpccode=JSONRPC_CODES["internal_error"]):
-            msg = bytes2NativeString(msg)
+            if isinstance(msg, bytes):
+                msg = bytes2unicode(msg)
             if self.debug:
-                log.msg("JSONRPC error: %s" % (msg,))
+                log.msg("JSONRPC error: {}".format(msg))
             request.setResponseCode(errcode)
             request.setHeader(b'content-type', JSON_ENCODED)
             if "error" not in jsonRpcReply:  # already filled in by caller
@@ -260,7 +253,7 @@ class V2RootResource(resource.Resource):
 
         def checkFields(fields, negOk=False):
             for field in fields:
-                k = bytes2NativeString(field)
+                k = bytes2unicode(field)
                 if k[0] == '-' and negOk:
                     k = k[1:]
                 if k not in entityType.fieldNames:
@@ -270,32 +263,28 @@ class V2RootResource(resource.Resource):
         limit = offset = order = fields = None
         filters, properties = [], []
         for arg in reqArgs:
-            argStr = bytes2NativeString(arg)
+            argStr = bytes2unicode(arg)
             if arg == b'order':
-                order = tuple([bytes2NativeString(o) for o in reqArgs[arg]])
+                order = tuple([bytes2unicode(o) for o in reqArgs[arg]])
                 checkFields(order, True)
-                continue
             elif arg == b'field':
                 fields = reqArgs[arg]
                 checkFields(fields, False)
-                continue
             elif arg == b'limit':
                 try:
                     limit = int(reqArgs[arg][0])
                 except Exception:
                     raise BadRequest('invalid limit')
-                continue
             elif arg == b'offset':
                 try:
                     offset = int(reqArgs[arg][0])
                 except Exception:
                     raise BadRequest('invalid offset')
-                continue
             elif arg == b'property':
                 try:
                     props = []
                     for v in reqArgs[arg]:
-                        if not isinstance(v, (bytes, text_type)):
+                        if not isinstance(v, (bytes, str)):
                             raise TypeError(
                                 "Invalid type {} for {}".format(type(v), v))
                         props.append(bytes2unicode(v))
@@ -303,7 +292,6 @@ class V2RootResource(resource.Resource):
                     raise BadRequest(
                         'invalid property value for {}'.format(arg))
                 properties.append(resultspec.Property(arg, 'eq', props))
-                continue
             elif argStr in entityType.fieldNames:
                 field = entityType.fields[argStr]
                 try:
@@ -313,7 +301,6 @@ class V2RootResource(resource.Resource):
                         'invalid filter value for {}'.format(argStr))
 
                 filters.append(resultspec.Filter(argStr, 'eq', values))
-                continue
             elif '__' in argStr:
                 field, op = argStr.rsplit('__', 1)
                 args = reqArgs[arg]
@@ -329,15 +316,15 @@ class V2RootResource(resource.Resource):
                         raise BadRequest(
                             'invalid filter value for {}'.format(argStr))
                     filters.append(resultspec.Filter(field, op, values))
-                    continue
-            raise BadRequest(
-                "unrecognized query parameter '{}'".format(argStr))
+            else:
+                raise BadRequest(
+                    "unrecognized query parameter '{}'".format(argStr))
 
         # if ordering or filtering is on a field that's not in fields, bail out
         if fields:
-            fields = [bytes2NativeString(f) for f in fields]
+            fields = [bytes2unicode(f) for f in fields]
             fieldsSet = set(fields)
-            if order and set([o.lstrip('-') for o in order]) - fieldsSet:
+            if order and {o.lstrip('-') for o in order} - fieldsSet:
                 raise BadRequest("cannot order on un-selected fields")
             for filter in filters:
                 if filter.field not in fieldsSet:
@@ -366,16 +353,16 @@ class V2RootResource(resource.Resource):
     def renderRest(self, request):
         def writeError(msg, errcode=404, jsonrpccode=None):
             if self.debug:
-                log.msg("REST error: %s" % (msg,))
+                log.msg("REST error: {}".format(msg))
             request.setResponseCode(errcode)
             request.setHeader(b'content-type', b'text/plain; charset=utf-8')
-            msg = bytes2NativeString(msg)
+            msg = bytes2unicode(msg)
             data = json.dumps(dict(error=msg))
             data = unicode2bytes(data)
             request.write(data)
 
         with self.handleErrors(writeError):
-            ep, kwargs = yield self.getEndpoint(request, bytes2NativeString(request.method), {})
+            ep, kwargs = yield self.getEndpoint(request, bytes2unicode(request.method), {})
 
             rspec = self.decodeResultSpec(request, ep)
             data = yield ep.get(rspec, kwargs)
@@ -460,7 +447,7 @@ class V2RootResource(resource.Resource):
         # pre-translate the origin entries in the config
         self.origins = []
         for o in new_config.www.get('allowed_origins', [origin_self]):
-            origin = bytes2NativeString(o).lower()
+            origin = bytes2unicode(o).lower()
             self.origins.append(re.compile(fnmatch.translate(origin)))
 
         # and copy some other flags
@@ -469,9 +456,9 @@ class V2RootResource(resource.Resource):
 
     def render(self, request):
         def writeError(msg, errcode=400):
-            msg = bytes2NativeString(msg)
+            msg = bytes2unicode(msg)
             if self.debug:
-                log.msg("HTTP error: %s" % (msg,))
+                log.msg("HTTP error: {}".format(msg))
             request.setResponseCode(errcode)
             request.setHeader(b'content-type', b'text/plain; charset=utf-8')
             if request.method == b'POST':
@@ -497,7 +484,7 @@ class V2RootResource(resource.Resource):
             if reqOrigin:
                 err = None
                 reqOrigin = reqOrigin.lower()
-                if not any(o.match(bytes2NativeString(reqOrigin)) for o in self.origins):
+                if not any(o.match(bytes2unicode(reqOrigin)) for o in self.origins):
                     err = b"invalid origin"
                 elif request.method == b'OPTIONS':
                     preflightMethod = request.getHeader(
@@ -519,7 +506,7 @@ class V2RootResource(resource.Resource):
 
                 # if this was a preflight request, we're done
                 if isPreflight:
-                    defer.returnValue(b"")
+                    return b""
 
         # based on the method, this is either JSONRPC or REST
         if request.method == b'POST':
@@ -529,7 +516,7 @@ class V2RootResource(resource.Resource):
         else:
             raise Error(400, b"invalid HTTP method")
 
-        defer.returnValue(res)
+        return res
 
 
 RestRootResource.addApiVersion(2, V2RootResource)

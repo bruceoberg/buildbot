@@ -23,8 +23,6 @@ special cases that Buildbot needs.  Those include:
 
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import os
 import re
@@ -42,13 +40,13 @@ from buildbot.util import sautils
 # from http://www.mail-archive.com/sqlalchemy@googlegroups.com/msg15079.html
 
 
-class ReconnectingListener(object):
+class ReconnectingListener:
 
     def __init__(self):
         self.retried = False
 
 
-class Strategy(object):
+class Strategy:
 
     def set_up(self, u, engine):
         pass
@@ -123,7 +121,7 @@ class MySQLStrategy(Strategy):
         # older versions of sqlalchemy require the listener to be specified
         # in the kwargs, in a class instance
         if sautils.sa_version() < (0, 7, 0):
-            class ReconnectingListener(object):
+            class ReconnectingListener:
                 pass
             rcl = ReconnectingListener()
             rcl.checkout = checkout_listener
@@ -153,8 +151,8 @@ def get_sqlalchemy_migrate_version():
     return tuple(map(int, version.split('.')))
 
 
-class BuildbotEngineStrategy(strategies.ThreadLocalEngineStrategy):
-    # A subclass of the ThreadLocalEngineStrategy that can effectively interact
+class BuildbotEngineStrategy(strategies.PlainEngineStrategy):
+    # A subclass of the PlainEngineStrategy that can effectively interact
     # with Buildbot.
     #
     # This adjusts the passed-in parameters to ensure that we get the behaviors
@@ -210,7 +208,7 @@ class BuildbotEngineStrategy(strategies.ThreadLocalEngineStrategy):
         # default to the MyISAM storage engine
         storage_engine = u.query.pop('storage_engine', 'MyISAM')
         kwargs['connect_args'] = {
-            'init_command': 'SET default_storage_engine=%s' % storage_engine,
+            'init_command': 'SET default_storage_engine={}'.format(storage_engine)
         }
 
         if 'use_unicode' in u.query:
@@ -238,12 +236,13 @@ class BuildbotEngineStrategy(strategies.ThreadLocalEngineStrategy):
             return  # unparseable -- oh well
 
         if version_tup < (0, 6):
-            raise RuntimeError("SQLAlchemy version %s is too old" % (version,))
+            raise RuntimeError("SQLAlchemy version {} is too old".format(version))
         if version_tup > (0, 7, 10):
             mvt = get_sqlalchemy_migrate_version()
             if mvt < (0, 8, 0):
-                raise RuntimeError("SQLAlchemy version %s is not supported by "
-                                   "SQLAlchemy-Migrate version %d.%d.%d" % (version, mvt[0], mvt[1], mvt[2]))
+                raise RuntimeError(("SQLAlchemy version {} is not supported by "
+                                    "SQLAlchemy-Migrate version {}.{}.{}").format(version, mvt[0],
+                                                                                  mvt[1], mvt[2]))
 
     def get_drivers_strategy(self, drivername):
         if drivername.startswith('sqlite'):
@@ -275,8 +274,7 @@ class BuildbotEngineStrategy(strategies.ThreadLocalEngineStrategy):
             max_conns = kwargs.get(
                 'pool_size', 5) + kwargs.get('max_overflow', 10)
         strategy = self.get_drivers_strategy(u.drivername)
-        engine = strategies.ThreadLocalEngineStrategy.create(self,
-                                                             u, **kwargs)
+        engine = super().create(u, **kwargs)
         strategy.set_up(u, engine)
         engine.should_retry = strategy.should_retry
         # annotate the engine with the optimal thread pool size; this is used

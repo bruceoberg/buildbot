@@ -13,14 +13,13 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import time
 
 from zope.interface import implementer
 
 from buildbot import interfaces
+from buildbot.process.properties import Properties
 from buildbot.util import bytes2unicode
 from buildbot.util.eventual import eventually
 
@@ -43,6 +42,7 @@ class WorkerStatus:
         self.graceful_callbacks = []
         self.pause_callbacks = []
         self.connect_times = []
+        self.info = Properties()
 
     def getName(self):
         return self.name

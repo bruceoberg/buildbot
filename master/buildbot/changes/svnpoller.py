@@ -16,13 +16,9 @@
 # Changed to svn (using xml.dom.minidom) by Niklaus Giger
 # Hacked beyond recognition by Brian Warner
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.moves.urllib.parse import quote_plus as urlquote_plus
-from future.utils import text_type
-
 import os
 import xml.dom.minidom
+from urllib.parse import quote_plus as urlquote_plus
 
 from twisted.internet import defer
 from twisted.internet import utils
@@ -77,21 +73,19 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
     master.
     """
 
-    compare_attrs = ("repourl", "split_file",
-                     "svnuser", "svnpasswd", "project",
-                     "pollInterval", "histmax",
-                     "svnbin", "category", "cachepath", "pollAtLaunch")
+    compare_attrs = ("repourl", "split_file", "svnuser", "svnpasswd", "project", "pollInterval",
+                     "histmax", "svnbin", "category", "cachepath", "pollAtLaunch",
+                     "pollRandomDelayMin", "pollRandomDelayMax")
     secrets = ("svnuser", "svnpasswd")
     parent = None  # filled in when we're added
     last_change = None
     loop = None
 
-    def __init__(self, repourl, split_file=None,
-                 svnuser=None, svnpasswd=None,
-                 pollInterval=10 * 60, histmax=100,
-                 svnbin='svn', revlinktmpl='', category=None,
-                 project='', cachepath=None, pollinterval=-2,
-                 extra_args=None, name=None, pollAtLaunch=False):
+    def __init__(self, repourl, split_file=None, svnuser=None, svnpasswd=None,
+                 pollInterval=10 * 60, histmax=100, svnbin="svn", revlinktmpl="",
+                 category=None, project="", cachepath=None, pollinterval=-2,
+                 extra_args=None, name=None, pollAtLaunch=False, pollRandomDelayMin=0,
+                 pollRandomDelayMax=0):
 
         # for backward compatibility; the parameter used to be spelled with 'i'
         if pollinterval != -2:
@@ -100,10 +94,10 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
         if name is None:
             name = repourl
 
-        base.PollingChangeSource.__init__(self, name=name,
-                                          pollInterval=pollInterval,
-                                          pollAtLaunch=pollAtLaunch,
-                                          svnuser=svnuser, svnpasswd=svnpasswd)
+        super().__init__(name=name, pollInterval=pollInterval, pollAtLaunch=pollAtLaunch,
+                         svnuser=svnuser, svnpasswd=svnpasswd,
+                         pollRandomDelayMin=pollRandomDelayMin,
+                         pollRandomDelayMax=pollRandomDelayMax)
 
         if repourl.endswith("/"):
             repourl = repourl[:-1]  # strip the trailing slash
@@ -130,19 +124,19 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
             try:
                 with open(self.cachepath, "r") as f:
                     self.last_change = int(f.read().strip())
-                    log.msg("SVNPoller: SVNPoller(%s) setting last_change to %s" % (
-                        self.repourl, self.last_change))
+                    log.msg(("SVNPoller: SVNPoller({}) setting last_change to {}"
+                             ).format(self.repourl, self.last_change))
                 # try writing it, too
                 with open(self.cachepath, "w") as f:
                     f.write(str(self.last_change))
             except Exception:
                 self.cachepath = None
-                log.msg(("SVNPoller: SVNPoller(%s) cache file corrupt or unwriteable; " +
-                         "skipping and not using") % self.repourl)
+                log.msg(("SVNPoller: SVNPoller({}) cache file corrupt or unwriteable; " +
+                         "skipping and not using").format(self.repourl))
                 log.err()
 
     def describe(self):
-        return "SVNPoller: watching %s" % self.repourl
+        return "SVNPoller: watching {}".format(self.repourl)
 
     def poll(self):
         # Our return value is only used for unit testing.
@@ -207,9 +201,9 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
     def get_prefix(self):
         args = ["info", "--xml", "--non-interactive", self.repourl]
         if self.svnuser:
-            args.append("--username=%s" % self.svnuser)
+            args.append("--username={}".format(self.svnuser))
         if self.svnpasswd is not None:
-            args.append("--password=%s" % self.svnpasswd)
+            args.append("--password={}".format(self.svnpasswd))
         if self.extra_args:
             args.extend(self.extra_args)
         d = self.getProcessOutput(args)
@@ -219,8 +213,7 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
             try:
                 doc = xml.dom.minidom.parseString(output)
             except xml.parsers.expat.ExpatError:
-                log.msg("SVNPoller: SVNPoller.get_prefix: ExpatError in '%s'"
-                        % output)
+                log.msg("SVNPoller: SVNPoller.get_prefix: ExpatError in '{}'".format(output))
                 raise
             rootnodes = doc.getElementsByTagName("root")
             if not rootnodes:
@@ -239,8 +232,8 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
             prefix = self.repourl[len(root):]
             if prefix.startswith("/"):
                 prefix = prefix[1:]
-            log.msg("SVNPoller: repourl=%s, root=%s, so prefix=%s" %
-                    (self.repourl, root, prefix))
+            log.msg("SVNPoller: repourl={}, root={}, so prefix={}".format(self.repourl, root,
+                                                                          prefix))
             return prefix
         return d
 
@@ -248,9 +241,9 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
         args = []
         args.extend(["log", "--xml", "--verbose", "--non-interactive"])
         if self.svnuser:
-            args.extend(["--username=%s" % self.svnuser])
+            args.extend(["--username={}".format(self.svnuser)])
         if self.svnpasswd is not None:
-            args.extend(["--password=%s" % self.svnpasswd])
+            args.extend(["--password={}".format(self.svnpasswd)])
         if self.extra_args:
             args.extend(self.extra_args)
         args.extend(["--limit=%d" % (self.histmax), self.repourl])
@@ -262,8 +255,7 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
         try:
             doc = xml.dom.minidom.parseString(output)
         except xml.parsers.expat.ExpatError:
-            log.msg(
-                "SVNPoller: SVNPoller.parse_logs: ExpatError in '%s'" % output)
+            log.msg("SVNPoller: SVNPoller.parse_logs: ExpatError in '{}'".format(output))
             raise
         logentries = doc.getElementsByTagName("logentry")
         return logentries
@@ -284,7 +276,7 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
                 # if this is the first time we've been run, ignore any changes
                 # that occurred before now. This prevents a build at every
                 # startup.
-                log.msg('SVNPoller: starting at change %s' % new_last_change)
+                log.msg('SVNPoller: starting at change {}'.format(new_last_change))
             elif last_change == new_last_change:
                 # an unmodified repository will hit this case
                 log.msg('SVNPoller: no changes')
@@ -296,8 +288,7 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
                 new_logentries.reverse()  # return oldest first
 
         self.last_change = new_last_change
-        log.msg('SVNPoller: _process_changes %s .. %s' %
-                (old_last_change, new_last_change))
+        log.msg('SVNPoller: _process_changes {} .. {}'.format(old_last_change, new_last_change))
         return new_logentries
 
     def _get_text(self, element, tag_name):
@@ -313,14 +304,14 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
             log.msg(format="SVNPoller: ignoring path '%(path)s' which doesn't"
                     "start with prefix '%(prefix)s'",
                     path=path, prefix=self._prefix)
-            return
+            return None
         relative_path = path[len(self._prefix):]
         if relative_path.startswith("/"):
             relative_path = relative_path[1:]
         where = self.split_file(relative_path)
         # 'where' is either None, (branch, final_path) or a dict
         if not where:
-            return
+            return None
         if isinstance(where, tuple):
             where = dict(branch=where[0], path=where[1])
         return where
@@ -329,15 +320,15 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
         changes = []
 
         for el in new_logentries:
-            revision = text_type(el.getAttribute("revision"))
+            revision = str(el.getAttribute("revision"))
 
-            revlink = u''
+            revlink = ''
 
             if self.revlinktmpl and revision:
                 revlink = self.revlinktmpl % urlquote_plus(revision)
-                revlink = text_type(revlink)
+                revlink = str(revlink)
 
-            log.msg("Adding change revision %s" % (revision,))
+            log.msg("Adding change revision {}".format(revision))
             author = self._get_text(el, "author")
             comments = self._get_text(el, "msg")
             # there is a "date" field, but it provides localtime in the
@@ -355,7 +346,7 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
             for p in pathlist.getElementsByTagName("path"):
                 kind = p.getAttribute("kind")
                 action = p.getAttribute("action")
-                path = u"".join([t.data for t in p.childNodes])
+                path = "".join([t.data for t in p.childNodes])
                 if path.startswith("/"):
                     path = path[1:]
                 if kind == "dir" and not path.endswith("/"):
@@ -396,12 +387,13 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
                     branch]['number_of_directories']
                 number_of_files_changed = len(files)
 
-                if (action == u'D' and number_of_directories_changed == 1 and
+                if (action == 'D' and number_of_directories_changed == 1 and
                         number_of_files_changed == 1 and files[0] == ''):
-                    log.msg("Ignoring deletion of branch '%s'" % branch)
+                    log.msg("Ignoring deletion of branch '{}'".format(branch))
                 else:
                     chdict = dict(
                         author=author,
+                        committer=None,
                         # weakly assume filenames are utf-8
                         files=[bytes2unicode(f, 'utf-8', 'replace')
                                for f in files],
@@ -423,12 +415,12 @@ class SVNPoller(base.PollingChangeSource, util.ComparableMixin):
     @defer.inlineCallbacks
     def submit_changes(self, changes):
         for chdict in changes:
-            yield self.master.data.updates.addChange(src=u'svn', **chdict)
+            yield self.master.data.updates.addChange(src='svn', **chdict)
 
     def finished_ok(self, res):
         if self.cachepath:
             with open(self.cachepath, "w") as f:
                 f.write(str(self.last_change))
 
-        log.msg("SVNPoller: finished polling %s" % res)
+        log.msg("SVNPoller: finished polling {}".format(res))
         return res

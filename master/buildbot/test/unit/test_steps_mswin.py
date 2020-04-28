@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.builtins import range
 
 from twisted.internet import defer
 from twisted.trial import unittest
@@ -28,21 +25,25 @@ from buildbot.process.results import Results
 from buildbot.steps import mswin
 from buildbot.test.fake.remotecommand import ExpectShell
 from buildbot.test.util import steps
+from buildbot.test.util.misc import TestReactorMixin
 
 
-class TestRobocopySimple(steps.BuildStepMixin, unittest.TestCase):
+class TestRobocopySimple(steps.BuildStepMixin, TestReactorMixin,
+                         unittest.TestCase):
 
     """
     Test L{Robocopy} command building.
     """
 
     def setUp(self):
+        self.setUpTestReactor()
         return self.setUpBuildStep()
 
     def tearDown(self):
         return self.tearDownBuildStep()
 
-    def _run_simple_test(self, source, destination, expected_args=None, expected_code=0, expected_res=SUCCESS, **kwargs):
+    def _run_simple_test(self, source, destination, expected_args=None, expected_code=0,
+                         expected_res=SUCCESS, **kwargs):
         s = mswin.Robocopy(source, destination, **kwargs)
         self.setupStep(s)
         s.rendered = True
@@ -58,9 +59,9 @@ class TestRobocopySimple(steps.BuildStepMixin, unittest.TestCase):
             ) +
             expected_code
         )
-        state_string = "'robocopy %s ...'" % source
+        state_string = "'robocopy {} ...'".format(source)
         if expected_res != SUCCESS:
-            state_string += ' (%s)' % (Results[expected_res])
+            state_string += ' ({})'.format(Results[expected_res])
         self.expectOutcome(result=expected_res, state_string=state_string)
         return self.runStep()
 

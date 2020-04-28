@@ -1,4 +1,4 @@
-# This file is part of Buildbot. Buildbot is free software: you can
+# This file is part of Buildbot. Buildbot is free software: you can)
 # redistribute it and/or modify it under the terms of the GNU General Public
 # License as published by the Free Software Foundation, version 2.
 #
@@ -12,10 +12,6 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Copyright Buildbot Team Members
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import json as jsonmodule
 import textwrap
@@ -48,7 +44,7 @@ log = Logger()
 
 
 @implementer(IHttpResponse)
-class TxRequestsResponseWrapper(object):
+class TxRequestsResponseWrapper:
 
     def __init__(self, res):
         self._res = res
@@ -73,8 +69,8 @@ class HTTPClientService(service.SharedService):
     that is suitable for use from buildbot services.
     """
     TREQ_PROS_AND_CONS = textwrap.dedent("""
-       txrequests is based on requests and is probably a bit more mature, but it requires threads to run,
-       so has more overhead.
+       txrequests is based on requests and is probably a bit more mature, but it requires threads
+       to run, so has more overhead.
        treq is better integrated in twisted and is more and more feature equivalent
 
        txrequests is 2.8x slower than treq due to the use of threads.
@@ -90,16 +86,19 @@ class HTTPClientService(service.SharedService):
     PREFER_TREQ = False
     MAX_THREADS = 5
 
-    def __init__(self, base_url, auth=None, headers=None, verify=None, debug=False):
+    def __init__(self, base_url, auth=None, headers=None, verify=None, debug=False,
+                 skipEncoding=False):
         assert not base_url.endswith(
             "/"), "baseurl should not end with /: " + base_url
-        service.SharedService.__init__(self)
+        super().__init__()
         self._base_url = base_url
         self._auth = auth
         self._headers = headers
+        self._pool = None
         self._session = None
         self.verify = verify
         self.debug = debug
+        self.skipEncoding = skipEncoding
 
     def updateHeaders(self, headers):
         if self._headers is None:
@@ -112,8 +111,9 @@ class HTTPClientService(service.SharedService):
            if neither txrequests or treq is installed
         """
         if txrequests is None and treq is None:
-            config.error("neither txrequests nor treq is installed, but {} is requiring it\n\n{}".format(
-                from_module, HTTPClientService.TREQ_PROS_AND_CONS))
+            config.error(("neither txrequests nor treq is installed, but {} is "
+                          "requiring it\n\n{}").format(from_module,
+                                                       HTTPClientService.TREQ_PROS_AND_CONS))
 
     def startService(self):
         # treq only supports basicauth, so we force txrequests if the auth is
@@ -126,17 +126,22 @@ class HTTPClientService(service.SharedService):
         elif treq is None:
             raise ImportError("{classname} requires either txrequest or treq install."
                               " Users should call {classname}.checkAvailable() during checkConfig()"
-                              " to properly alert the user.".format(classname=self.__class__.__name__))
+                              " to properly alert the user.".format(
+                                  classname=self.__class__.__name__))
         else:
             self._doRequest = self._doTReq
             self._pool = HTTPConnectionPool(self.master.reactor)
             self._pool.maxPersistentPerHost = self.MAX_THREADS
             self._agent = Agent(self.master.reactor, pool=self._pool)
+        return super().startService()
 
+    @defer.inlineCallbacks
     def stopService(self):
         if self._session:
-            return self._session.close()
-        return self._pool.closeCachedConnections()
+            yield self._session.close()
+        if self._pool:
+            yield self._pool.closeCachedConnections()
+        yield super().stopService()
 
     def _prepareRequest(self, ep, kwargs):
         assert ep == "" or ep.startswith("/"), "ep should start with /: " + ep
@@ -151,15 +156,19 @@ class HTTPClientService(service.SharedService):
         # we manually do the json encoding in order to automatically convert timestamps
         # for txrequests and treq
         json = kwargs.pop('json', None)
-        if isinstance(json, dict):
+        if isinstance(json, (dict, list)):
             jsonStr = jsonmodule.dumps(json, default=toJson)
-            jsonBytes = unicode2bytes(jsonStr)
             kwargs['headers']['Content-Type'] = 'application/json'
-            kwargs['data'] = jsonBytes
+            if self.skipEncoding:
+                kwargs['data'] = jsonStr
+            else:
+                jsonBytes = unicode2bytes(jsonStr)
+                kwargs['data'] = jsonBytes
         return url, kwargs
 
+    @defer.inlineCallbacks
     def _doTxRequest(self, method, ep, **kwargs):
-        url, kwargs = self._prepareRequest(ep, kwargs)
+        url, kwargs = yield self._prepareRequest(ep, kwargs)
         if self.debug:
             log.debug("http {url} {kwargs}", url=url, kwargs=kwargs)
 
@@ -169,25 +178,25 @@ class HTTPClientService(service.SharedService):
             if self.debug:
                 log.debug("==> {code}: {content}", code=res.status_code, content=res.content)
             return res
+
         # read the whole content in the thread
         kwargs['background_callback'] = readContent
         if self.verify is False:
             kwargs['verify'] = False
-        d = self._session.request(method, url, **kwargs)
-        d.addCallback(TxRequestsResponseWrapper)
-        d.addCallback(IHttpResponse)
-        return d
 
+        res = yield self._session.request(method, url, **kwargs)
+        return IHttpResponse(TxRequestsResponseWrapper(res))
+
+    @defer.inlineCallbacks
     def _doTReq(self, method, ep, **kwargs):
-        url, kwargs = self._prepareRequest(ep, kwargs)
+        url, kwargs = yield self._prepareRequest(ep, kwargs)
         # treq requires header values to be an array
-        kwargs['headers'] = dict([(k, [v])
-                                  for k, v in kwargs['headers'].items()])
+        kwargs['headers'] = {k: [v]
+                             for k, v in kwargs['headers'].items()}
         kwargs['agent'] = self._agent
 
-        d = getattr(treq, method)(url, **kwargs)
-        d.addCallback(IHttpResponse)
-        return d
+        res = yield getattr(treq, method)(url, **kwargs)
+        return IHttpResponse(res)
 
     # lets be nice to the auto completers, and don't generate that code
     def get(self, ep, **kwargs):

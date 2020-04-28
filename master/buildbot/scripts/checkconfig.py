@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import os
 import sys
@@ -52,7 +49,7 @@ def checkconfig(config):
         except Exception:
             if not quiet:
                 # the exception is already printed in base.py
-                print("Unable to load 'buildbot.tac' from '%s':" % basedir)
+                print("Unable to load 'buildbot.tac' from '{}':".format(basedir))
             return 1
     else:
         basedir = os.getcwd()

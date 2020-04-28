@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import os
 import textwrap
 
@@ -24,12 +21,12 @@ import sqlalchemy as sa
 from twisted.internet import defer
 from twisted.trial import unittest
 
-from buildbot.db.connector import DBConnector
 from buildbot.scripts import cleanupdb
 from buildbot.test.fake import fakemaster
 from buildbot.test.util import db
 from buildbot.test.util import dirs
 from buildbot.test.util import misc
+from buildbot.test.util.misc import TestReactorMixin
 
 from . import test_db_logs
 
@@ -61,9 +58,10 @@ def patch_environ(case, key, value):
 
 
 class TestCleanupDb(misc.StdoutAssertionsMixin, dirs.DirsMixin,
-                    db.RealDatabaseMixin, unittest.TestCase):
+                    TestReactorMixin, unittest.TestCase):
 
     def setUp(self):
+        self.setUpTestReactor()
         self.origcwd = os.getcwd()
         self.setUpDirs('basedir')
         with open(os.path.join('basedir', 'buildbot.tac'), 'wt') as f:
@@ -123,55 +121,6 @@ class TestCleanupDb(misc.StdoutAssertionsMixin, dirs.DirsMixin,
         # complain
         self.flushLoggedErrors()
 
-    @defer.inlineCallbacks
-    def test_cleanup(self):
-
-        # we reuse RealDatabaseMixin to setup the db
-        yield self.setUpRealDatabase(table_names=['logs', 'logchunks', 'steps', 'builds', 'builders',
-                                                  'masters', 'buildrequests', 'buildsets',
-                                                  'workers'])
-        master = fakemaster.make_master()
-        master.config.db['db_url'] = self.db_url
-        self.db = DBConnector(self.basedir)
-        self.db.setServiceParent(master)
-        self.db.pool = self.db_pool
-
-        # we reuse the fake db background data from db.logs unit tests
-        yield self.insertTestData(test_db_logs.Tests.backgroundData)
-
-        # insert a log with lots of redundancy
-        LOGDATA = "xx\n" * 2000
-        logid = yield self.db.logs.addLog(102, "x", "x", "s")
-        yield self.db.logs.appendLog(logid, LOGDATA)
-
-        # test all methods
-        lengths = {}
-        for mode in self.db.logs.COMPRESSION_MODE:
-            if mode == "lz4" and not hasLz4:
-                # ok.. lz4 is not installed, don't fail
-                lengths["lz4"] = 40
-                continue
-            # create a master.cfg with different compression method
-            self.createMasterCfg("c['logCompressionMethod'] = '%s'" % (mode,))
-            res = yield cleanupdb._cleanupDatabase(mkconfig(basedir='basedir'))
-            self.assertEqual(res, 0)
-
-            # make sure the compression don't change the data we can retrieve
-            # via api
-            res = yield self.db.logs.getLogLines(logid, 0, 2000)
-            self.assertEqual(res, LOGDATA)
-
-            # retrieve the actual data size in db using raw sqlalchemy
-            def thd(conn):
-                tbl = self.db.model.logchunks
-                q = sa.select([sa.func.sum(sa.func.length(tbl.c.content))])
-                q = q.where(tbl.c.logid == logid)
-                return conn.execute(q).fetchone()[0]
-            lengths[mode] = yield self.db.pool.do(thd)
-
-        self.assertDictAlmostEqual(
-            lengths, {'raw': 5999, 'bz2': 44, 'lz4': 40, 'gz': 31})
-
     def assertDictAlmostEqual(self, d1, d2):
         # The test shows each methods return different size
         # but we still make a fuzzy comparison to resist if underlying libraries
@@ -179,3 +128,60 @@ class TestCleanupDb(misc.StdoutAssertionsMixin, dirs.DirsMixin,
         self.assertEqual(len(d1), len(d2))
         for k in d2.keys():
             self.assertApproximates(d1[k], d2[k], 10)
+
+
+class TestCleanupDbRealDb(db.RealDatabaseWithConnectorMixin, TestCleanupDb):
+
+    @defer.inlineCallbacks
+    def setUp(self):
+        yield super().setUp()
+
+        table_names = [
+            'logs', 'logchunks', 'steps', 'builds', 'builders',
+            'masters', 'buildrequests', 'buildsets', 'workers'
+        ]
+
+        self.master = fakemaster.make_master(self, wantRealReactor=True)
+        yield self.setUpRealDatabaseWithConnector(self.master, table_names=table_names)
+
+    @defer.inlineCallbacks
+    def tearDown(self):
+        yield self.tearDownRealDatabaseWithConnector()
+
+    @defer.inlineCallbacks
+    def test_cleanup(self):
+        # we reuse the fake db background data from db.logs unit tests
+        yield self.insertTestData(test_db_logs.Tests.backgroundData)
+
+        # insert a log with lots of redundancy
+        LOGDATA = "xx\n" * 2000
+        logid = yield self.master.db.logs.addLog(102, "x", "x", "s")
+        yield self.master.db.logs.appendLog(logid, LOGDATA)
+
+        # test all methods
+        lengths = {}
+        for mode in self.master.db.logs.COMPRESSION_MODE:
+            if mode == "lz4" and not hasLz4:
+                # ok.. lz4 is not installed, don't fail
+                lengths["lz4"] = 40
+                continue
+            # create a master.cfg with different compression method
+            self.createMasterCfg("c['logCompressionMethod'] = '{}'".format(mode))
+            res = yield cleanupdb._cleanupDatabase(mkconfig(basedir='basedir'))
+            self.assertEqual(res, 0)
+
+            # make sure the compression don't change the data we can retrieve
+            # via api
+            res = yield self.master.db.logs.getLogLines(logid, 0, 2000)
+            self.assertEqual(res, LOGDATA)
+
+            # retrieve the actual data size in db using raw sqlalchemy
+            def thd(conn):
+                tbl = self.master.db.model.logchunks
+                q = sa.select([sa.func.sum(sa.func.length(tbl.c.content))])
+                q = q.where(tbl.c.logid == logid)
+                return conn.execute(q).fetchone()[0]
+            lengths[mode] = yield self.master.db.pool.do(thd)
+
+        self.assertDictAlmostEqual(
+            lengths, {'raw': 5999, 'bz2': 44, 'lz4': 40, 'gz': 31})

@@ -13,11 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-from future.utils import text_type
-
 import os
 import pprint
 import re
@@ -54,7 +49,7 @@ class MasterShellCommand(BuildStep):
         self.interruptSignal = kwargs.pop('interruptSignal', 'KILL')
         self.logEnviron = kwargs.pop('logEnviron', True)
 
-        BuildStep.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
         self.command = command
         self.masterWorkdir = self.workdir
@@ -75,15 +70,14 @@ class MasterShellCommand(BuildStep):
                 self.step.stdio_log.addHeader(
                     "exit status %d\n" % status_object.value.exitCode)
             if status_object.value.signal is not None:
-                self.step.stdio_log.addHeader(
-                    "signal %s\n" % status_object.value.signal)
+                self.step.stdio_log.addHeader("signal {}\n".format(status_object.value.signal))
             self.step.processEnded(status_object)
 
     def start(self):
         # render properties
         command = self.command
         # set up argv
-        if isinstance(command, (text_type, bytes)):
+        if isinstance(command, (str, bytes)):
             if runtime.platformType == 'win32':
                 # allow %COMSPEC% to have args
                 argv = os.environ['COMSPEC'].split()
@@ -106,13 +100,13 @@ class MasterShellCommand(BuildStep):
 
         self.stdio_log = stdio_log = self.addLog("stdio")
 
-        if isinstance(command, (text_type, bytes)):
+        if isinstance(command, (str, bytes)):
             stdio_log.addHeader(command.strip() + "\n\n")
         else:
             stdio_log.addHeader(" ".join(command) + "\n\n")
         stdio_log.addHeader("** RUNNING ON BUILDMASTER **\n")
-        stdio_log.addHeader(" in dir %s\n" % os.getcwd())
-        stdio_log.addHeader(" argv: %s\n" % (argv,))
+        stdio_log.addHeader(" in dir {}\n".format(os.getcwd()))
+        stdio_log.addHeader(" argv: {}\n".format(argv))
         self.step_status.setText(self.describe())
 
         if self.env is None:
@@ -120,7 +114,7 @@ class MasterShellCommand(BuildStep):
         else:
             assert isinstance(self.env, dict)
             env = self.env
-            for key, v in iteritems(self.env):
+            for key, v in self.env.items():
                 if isinstance(v, list):
                     # Need to do os.pathsep translation.  We could either do that
                     # by replacing all incoming ':'s with os.pathsep, or by
@@ -135,11 +129,11 @@ class MasterShellCommand(BuildStep):
             def subst(match):
                 return os.environ.get(match.group(1), "")
             newenv = {}
-            for key, v in iteritems(env):
+            for key, v in env.items():
                 if v is not None:
-                    if not isinstance(v, (text_type, bytes)):
-                        raise RuntimeError("'env' values must be strings or "
-                                           "lists; key '%s' is incorrect" % (key,))
+                    if not isinstance(v, (str, bytes)):
+                        raise RuntimeError(("'env' values must be strings or "
+                                            "lists; key '{}' is incorrect").format(key))
                     newenv[key] = p.sub(subst, env[key])
             env = newenv
 
@@ -153,7 +147,7 @@ class MasterShellCommand(BuildStep):
 
     def processEnded(self, status_object):
         if status_object.value.signal is not None:
-            self.descriptionDone = ["killed (%s)" % status_object.value.signal]
+            self.descriptionDone = ["killed ({})".format(status_object.value.signal)]
             self.step_status.setText(self.describe(done=True))
             self.finished(FAILURE)
         elif status_object.value.exitCode != 0:
@@ -172,7 +166,7 @@ class MasterShellCommand(BuildStep):
             pass
         except error.ProcessExitedAlready:
             pass
-        BuildStep.interrupt(self, reason)
+        super().interrupt(reason)
 
 
 class SetProperty(BuildStep):
@@ -182,7 +176,7 @@ class SetProperty(BuildStep):
     renderables = ['property', 'value']
 
     def __init__(self, property, value, **kwargs):
-        BuildStep.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.property = property
         self.value = value
 
@@ -200,13 +194,13 @@ class SetProperties(BuildStep):
     renderables = ['properties']
 
     def __init__(self, properties=None, **kwargs):
-        BuildStep.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.properties = properties
 
     def run(self):
         if self.properties is None:
             return defer.succeed(SUCCESS)
-        for k, v in iteritems(self.properties):
+        for k, v in self.properties.items():
             self.setProperty(k, v, self.name, runtime=True)
         return defer.succeed(SUCCESS)
 
@@ -218,7 +212,7 @@ class Assert(BuildStep):
     renderables = ['check']
 
     def __init__(self, check, **kwargs):
-        BuildStep.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.check = check
         self.descriptionDone = ["checked {}".format(repr(self.check))]
 
@@ -235,7 +229,7 @@ class LogRenderable(BuildStep):
     renderables = ['content']
 
     def __init__(self, content, **kwargs):
-        BuildStep.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.content = content
 
     def start(self):

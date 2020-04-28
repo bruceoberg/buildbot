@@ -19,6 +19,21 @@ For those more familiar with Docker_, there also exists a :ref:`docker version o
 
 You should be able to cut and paste each shell block from this tutorial directly into a terminal.
 
+Simple introduction to BuildBot
+-------------------------------
+
+Before trying to run BuildBot it's helpful to know what BuildBot is.
+
+BuildBot is a continuous integration framework written in Python.
+It consists of a master daemon and potentially many worker daemons that usually run on other machines.
+The master daemon runs a web server that allows the end user to start new builds and to control the behaviour of the BuildBot instance.
+The master also distributes builds to the workers.
+The worker daemons connect to the master daemon and execute builds whenever master tells them to do so.
+
+In this tutorial we will run a single master and a single worker on the same machine.
+
+A more throughout explanation can be found in the :ref:`manual section <Introduction>` of the Buildbot documentation.
+
 .. _Docker: https://docker.com
 
 .. _getting-code-label:
@@ -40,7 +55,7 @@ To make this work, you will need the following installed:
 
 Preferably, use your distribution package manager to install these.
 
-You will also need a working Internet connection, as virtualenv and pip will need to download other projects from the Internet.
+You will also need a working Internet connection, as virtualenv and pip will need to download other projects from the Internet. The master and builder daemons will need to be able to connect to ``github.com`` via HTTPS to fetch the repo we're testing; if you need to use a proxy for this ensure that either the ``HTTPS_PROXY`` or ``ALL_PROXY`` environment variable is set to your proxy, e.g., by executing ``export HTTPS_PROXY=http://localhost:9080`` in the shell before starting each daemon.
 
 .. note::
 
@@ -58,12 +73,6 @@ We will also use a separate directory to demonstrate the distinction between a m
   mkdir -p ~/tmp/bb-master
   cd ~/tmp/bb-master
 
-On Python 2:
-
-.. code-block:: bash
-
-  virtualenv --no-site-packages sandbox
-  source sandbox/bin/activate
 
 On Python 3:
 
@@ -87,6 +96,8 @@ Now that buildbot is installed, it's time to create the master:
   buildbot create-master master
 
 Buildbot's activity is controlled by a configuration file.
+Buildbot by default uses configuration from file at ``master.cfg``.
+Buildbot comes with a sample configuration file named ``master.cfg.sample``.
 We will use the sample configuration file unchanged:
 
 .. code-block:: bash
@@ -184,7 +195,8 @@ Meanwhile, from the other terminal, in the master log (:file:`twisted.log` in th
 
 .. code-block:: none
 
-  2014-11-01 15:56:51+0100 [Broker,1,127.0.0.1] worker 'example-worker' attaching from IPv4Address(TCP, '127.0.0.1', 54015)
+  2014-11-01 15:56:51+0100 [Broker,1,127.0.0.1] worker 'example-worker' attaching from
+  IPv4Address(TCP, '127.0.0.1', 54015)
   2014-11-01 15:56:51+0100 [Broker,1,127.0.0.1] Got workerinfo from 'example-worker'
   2014-11-01 15:56:51+0100 [-] bot attached
 
@@ -193,10 +205,10 @@ You should now be able to go to http://localhost:8010, where you will see a web 
 .. image:: _images/index.png
    :alt: index page
 
-Click on the `Waterfall Display link <http://localhost:8010/#/waterfall>`_ and you get this:
+Click on "Builds" at the left to open the submenu and then `Builders <http://localhost:8010/#/builders>`_ to see that the worker you just started (identified by the green bubble) has connected to the master:
 
-.. image:: _images/waterfall-empty.png
-   :alt: empty waterfall.
+.. image:: _images/builders.png
+   :alt: builder runtests is active.
 
 Your master is now quietly waiting for new commits to hello-world.
 This doesn't happen very often though.

@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import mock
 
@@ -23,10 +21,11 @@ from twisted.trial import unittest
 
 from buildbot.data import properties
 from buildbot.process.properties import Properties as processProperties
-from buildbot.test.fake import fakedb
+from buildbot.test import fakedb
 from buildbot.test.fake import fakemaster
 from buildbot.test.util import endpoint
 from buildbot.test.util import interfaces
+from buildbot.test.util.misc import TestReactorMixin
 
 
 class BuildsetPropertiesEndpoint(endpoint.EndpointMixin, unittest.TestCase):
@@ -51,13 +50,11 @@ class BuildsetPropertiesEndpoint(endpoint.EndpointMixin, unittest.TestCase):
     def tearDown(self):
         self.tearDownEndpoint()
 
+    @defer.inlineCallbacks
     def test_get_properties(self):
-        d = self.callGet(('buildsets', 14, 'properties'))
+        props = yield self.callGet(('buildsets', 14, 'properties'))
 
-        @d.addCallback
-        def check(props):
-            self.assertEqual(props, {u'prop': (22, u'fakedb')})
-        return d
+        self.assertEqual(props, {'prop': (22, 'fakedb')})
 
 
 class BuildPropertiesEndpoint(endpoint.EndpointMixin, unittest.TestCase):
@@ -82,21 +79,21 @@ class BuildPropertiesEndpoint(endpoint.EndpointMixin, unittest.TestCase):
     def tearDown(self):
         self.tearDownEndpoint()
 
+    @defer.inlineCallbacks
     def test_get_properties(self):
-        d = self.callGet(('builds', 786, 'properties'))
+        props = yield self.callGet(('builds', 786, 'properties'))
 
-        @d.addCallback
-        def check(props):
-            self.assertEqual(
-                props, {u'year': (1651, u'Wikipedia'), u'island_name': ("despair", u'Book')})
-        return d
+        self.assertEqual(props, {'year': (1651, 'Wikipedia'),
+                         'island_name': ("despair", 'Book')})
 
 
-class Properties(interfaces.InterfaceTests, unittest.TestCase):
+class Properties(interfaces.InterfaceTests, TestReactorMixin,
+                 unittest.TestCase):
 
     def setUp(self):
-        self.master = fakemaster.make_master(testcase=self,
-                                             wantMq=False, wantDb=True, wantData=True)
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self, wantMq=False, wantDb=True,
+                                             wantData=True)
         self.rtype = properties.Properties(self.master)
 
     @defer.inlineCallbacks
@@ -119,8 +116,10 @@ class Properties(interfaces.InterfaceTests, unittest.TestCase):
 
     def test_setBuildProperty(self):
         return self.do_test_callthrough('setBuildProperty', self.rtype.setBuildProperty,
-                                        buildid=1234, name='property', value=[42, 45], source='testsuite',
-                                        exp_args=(1234, 'property', [42, 45], 'testsuite'), exp_kwargs={})
+                                        buildid=1234, name='property', value=[42, 45],
+                                        source='testsuite',
+                                        exp_args=(1234, 'property', [42, 45], 'testsuite'),
+                                        exp_kwargs={})
 
     @defer.inlineCallbacks
     def test_setBuildProperties(self):
@@ -139,11 +138,11 @@ class Properties(interfaces.InterfaceTests, unittest.TestCase):
         yield self.rtype.setBuildProperties(1234, props)
         setBuildPropertiesCalls = sorted(self.master.db.builds.setBuildProperty.mock_calls)
         self.assertEqual(setBuildPropertiesCalls, [
-            mock.call(1234, u'a', 1, u't'),
-            mock.call(1234, u'b', ['abc', 9], u't')])
+            mock.call(1234, 'a', 1, 't'),
+            mock.call(1234, 'b', ['abc', 9], 't')])
         self.master.mq.assertProductions([
             (('builds', '1234', 'properties', 'update'),
-             {u'a': (1, u't'), u'b': (['abc', 9], u't')}),
+             {'a': (1, 't'), 'b': (['abc', 9], 't')}),
         ])
         # sync without changes: no db write
         self.master.db.builds.setBuildProperty.reset_mock()
@@ -158,7 +157,7 @@ class Properties(interfaces.InterfaceTests, unittest.TestCase):
         yield self.rtype.setBuildProperties(1234, props)
 
         self.master.db.builds.setBuildProperty.assert_called_with(
-            1234, u'b', 2, u'step')
+            1234, 'b', 2, 'step')
         self.master.mq.assertProductions([
-            (('builds', '1234', 'properties', 'update'), {u'b': (2, u'step')})
+            (('builds', '1234', 'properties', 'update'), {'b': (2, 'step')})
         ])

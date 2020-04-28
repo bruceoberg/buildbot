@@ -13,13 +13,11 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from buildbot.config import MasterConfig
 
 
-class ConfiguratorMixin(object):
+class ConfiguratorMixin:
 
     """
     Support for testing configurators.
@@ -41,18 +39,21 @@ class ConfiguratorMixin(object):
             if isinstance(worker, klass) and worker.name == name:
                 return worker
         self.fail("expected a worker named {} of class {}".format(name, klass))
+        return None
 
     def expectScheduler(self, name, klass):
         for scheduler in self.config_dict['schedulers']:
             if scheduler.name == name and isinstance(scheduler, klass):
                 return scheduler
         self.fail("expected a scheduler named {} of class {}".format(name, klass))
+        return None
 
     def expectBuilder(self, name):
         for builder in self.config_dict['builders']:
             if builder.name == name:
                 return builder
         self.fail("expected a builder named {}".format(name))
+        return None
 
     def expectBuilderHasSteps(self, name, step_classes):
         builder = self.expectBuilder(name)

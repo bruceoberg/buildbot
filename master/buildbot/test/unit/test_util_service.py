@@ -13,11 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.builtins import range
-from future.utils import text_type
-
 import mock
 
 from twisted.internet import defer
@@ -50,9 +45,10 @@ class AsyncMultiService(unittest.TestCase):
         yield self.svc.startService()
         yield self.svc.stopService()
 
+    @defer.inlineCallbacks
     def test_waits_for_child_services(self):
         child = DeferredStartStop()
-        child.setServiceParent(self.svc)
+        yield child.setServiceParent(self.svc)
 
         d = self.svc.startService()
         self.assertFalse(d.called)
@@ -64,9 +60,10 @@ class AsyncMultiService(unittest.TestCase):
         child.d.callback(None)
         self.assertTrue(d.called)
 
+    @defer.inlineCallbacks
     def test_child_fails(self):
         child = DeferredStartStop()
-        child.setServiceParent(self.svc)
+        yield child.setServiceParent(self.svc)
 
         d = self.svc.startService()
         self.assertFalse(d.called)
@@ -147,16 +144,16 @@ class ClusteredBuildbotService(unittest.TestCase):
         svc.deactivate = self.makeMock(deactivate)
 
     def test_name_PreservesUnicodePromotion(self):
-        svc = self.makeService(name=u'n')
+        svc = self.makeService(name='n')
 
-        self.assertIsInstance(svc.name, text_type)
-        self.assertEqual(svc.name, u'n')
+        self.assertIsInstance(svc.name, str)
+        self.assertEqual(svc.name, 'n')
 
     def test_name_GetsUnicodePromotion(self):
         svc = self.makeService(name='n')
 
-        self.assertIsInstance(svc.name, text_type)
-        self.assertEqual(svc.name, u'n')
+        self.assertIsInstance(svc.name, str)
+        self.assertEqual(svc.name, 'n')
 
     def test_compare(self):
         a = self.makeService(name='a', serviceid=20)
@@ -553,7 +550,7 @@ class MyService(service.BuildbotService):
         return defer.succeed(None)
 
 
-class fakeConfig(object):
+class fakeConfig:
     pass
 
 
@@ -579,7 +576,7 @@ class BuildbotService(unittest.TestCase):
         yield serv.setServiceParent(self.master)
         yield self.master.startService()
         yield serv.reconfigServiceWithSibling(serv)
-        defer.returnValue(serv)
+        return serv
 
     @defer.inlineCallbacks
     def testNominal(self):
@@ -597,11 +594,12 @@ class BuildbotService(unittest.TestCase):
             'name': 'basic'})
 
     def testNoName(self):
-        self.assertRaises(ValueError, lambda: MyService(1, a=2))
+        with self.assertRaises(ValueError):
+            MyService(1, a=2)
 
     def testChecksDone(self):
-        self.assertRaises(
-            config.ConfigErrors, lambda: MyService(1, name="foo"))
+        with self.assertRaises(config.ConfigErrors):
+            MyService(1, name="foo")
 
 
 class BuildbotServiceManager(unittest.TestCase):
@@ -618,7 +616,7 @@ class BuildbotServiceManager(unittest.TestCase):
         yield self.manager.setServiceParent(self.master)
         yield self.master.startService()
         yield self.master.reconfigServiceWithBuildbotConfig(self.master.config)
-        defer.returnValue(serv)
+        return serv
 
     @defer.inlineCallbacks
     def testNominal(self):
@@ -664,11 +662,12 @@ class BuildbotServiceManager(unittest.TestCase):
         self.assertEqual(serv.config, ((1,), dict(a=4)))
 
     def testNoName(self):
-        self.assertRaises(ValueError, lambda: MyService(1, a=2))
+        with self.assertRaises(ValueError):
+            MyService(1, a=2)
 
     def testChecksDone(self):
-        self.assertRaises(
-            config.ConfigErrors, lambda: MyService(1, name="foo"))
+        with self.assertRaises(config.ConfigErrors):
+            MyService(1, name="foo")
 
     @defer.inlineCallbacks
     def testReconfigWithNew(self):
@@ -729,7 +728,8 @@ class BuildbotServiceManager(unittest.TestCase):
     def testRenderSecrets2Args(self):
         yield self.prepareService()
         service = self.manager.namedServices['basic']
-        test, test2 = yield service.renderSecrets(Interpolate('test_string'), 'ok_for_non_renderable')
+        test, test2 = yield service.renderSecrets(Interpolate('test_string'),
+                                                  'ok_for_non_renderable')
         self.assertEqual(test, 'test_string')
         self.assertEqual(test2, 'ok_for_non_renderable')
 
@@ -743,7 +743,7 @@ class BuildbotServiceManager(unittest.TestCase):
 
 class UnderTestSharedService(service.SharedService):
     def __init__(self, arg1=None):
-        service.SharedService.__init__(self)
+        super().__init__()
 
 
 class UnderTestDependentService(service.AsyncService):
@@ -755,48 +755,51 @@ class UnderTestDependentService(service.AsyncService):
         assert self.dependent.running
 
 
-class SharedService(unittest.SynchronousTestCase):
+class SharedService(unittest.TestCase):
+    @defer.inlineCallbacks
     def test_bad_constructor(self):
         parent = service.AsyncMultiService()
-        self.failureResultOf(
-            UnderTestSharedService.getService(parent, arg2="foo"))
+        with self.assertRaises(Exception):
+            yield UnderTestSharedService.getService(parent, arg2="foo")
 
+    @defer.inlineCallbacks
     def test_creation(self):
         parent = service.AsyncMultiService()
-        r = self.successResultOf(UnderTestSharedService.getService(parent))
-        r2 = self.successResultOf(UnderTestSharedService.getService(parent))
-        r3 = self.successResultOf(
-            UnderTestSharedService.getService(parent, "arg1"))
-        r4 = self.successResultOf(
-            UnderTestSharedService.getService(parent, "arg1"))
+        r = yield UnderTestSharedService.getService(parent)
+        r2 = yield UnderTestSharedService.getService(parent)
+        r3 = yield UnderTestSharedService.getService(parent, "arg1")
+        r4 = yield UnderTestSharedService.getService(parent, "arg1")
         self.assertIdentical(r, r2)
         self.assertNotIdentical(r, r3)
         self.assertIdentical(r3, r4)
         self.assertEqual(len(list(iter(parent))), 2)
 
+    @defer.inlineCallbacks
     def test_startup(self):
         """the service starts when parent starts and stop"""
         parent = service.AsyncMultiService()
-        r = self.successResultOf(UnderTestSharedService.getService(parent))
+        r = yield UnderTestSharedService.getService(parent)
         self.assertEqual(r.running, 0)
-        self.successResultOf(parent.startService())
+        yield parent.startService()
         self.assertEqual(r.running, 1)
-        self.successResultOf(parent.stopService())
+        yield parent.stopService()
         self.assertEqual(r.running, 0)
 
+    @defer.inlineCallbacks
     def test_already_started(self):
         """the service starts during the getService if parent already started"""
         parent = service.AsyncMultiService()
-        self.successResultOf(parent.startService())
-        r = self.successResultOf(UnderTestSharedService.getService(parent))
+        yield parent.startService()
+        r = yield UnderTestSharedService.getService(parent)
         self.assertEqual(r.running, 1)
         # then we stop the parent, and the shared service stops
-        self.successResultOf(parent.stopService())
+        yield parent.stopService()
         self.assertEqual(r.running, 0)
 
+    @defer.inlineCallbacks
     def test_already_stopped_last(self):
         parent = service.AsyncMultiService()
         o = UnderTestDependentService()
-        o.setServiceParent(parent)
-        self.successResultOf(parent.startService())
-        self.successResultOf(parent.stopService())
+        yield o.setServiceParent(parent)
+        yield parent.startService()
+        yield parent.stopService()

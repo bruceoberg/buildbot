@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import locale
 import os
@@ -36,9 +34,10 @@ from buildbot.db.model import EightUpgradeError
 from buildbot.test.fake import fakemaster
 from buildbot.test.util import db
 from buildbot.test.util import querylog
+from buildbot.test.util.misc import TestReactorMixin
 
 
-class UpgradeTestMixin(db.RealDatabaseMixin):
+class UpgradeTestMixin(db.RealDatabaseMixin, TestReactorMixin):
 
     """Supporting code to test upgrading from older versions by untarring a
     basedir tarball and then checking that the results are as expected."""
@@ -70,9 +69,8 @@ class UpgradeTestMixin(db.RealDatabaseMixin):
         if self.source_tarball:
             tarball = util.sibpath(__file__, self.source_tarball)
             if not os.path.exists(tarball):
-                raise unittest.SkipTest(
-                    "'%s' not found (normal when not building from Git)"
-                    % tarball)
+                raise unittest.SkipTest("'{}' not found (normal when not building from Git)".format(
+                        tarball))
 
             tf = tarfile.open(tarball)
             prefixes = set()
@@ -90,10 +88,10 @@ class UpgradeTestMixin(db.RealDatabaseMixin):
                 os.makedirs("basedir")
             self.basedir = os.path.abspath("basedir")
 
-        self.master = master = fakemaster.make_master()
+        self.master = master = fakemaster.make_master(self)
         master.config.db['db_url'] = self.db_url
         self.db = connector.DBConnector(self.basedir)
-        self.db.setServiceParent(master)
+        yield self.db.setServiceParent(master)
         yield self.db.setup(check_version=False)
 
         self._sql_log_handler = querylog.start_log_queries()
@@ -111,6 +109,7 @@ class UpgradeTestMixin(db.RealDatabaseMixin):
     # save subclasses the trouble of calling our setUp and tearDown methods
 
     def setUp(self):
+        self.setUpTestReactor()
         return self.setUpUpgradeTest()
 
     def tearDown(self):
@@ -143,32 +142,31 @@ class UpgradeTestMixin(db.RealDatabaseMixin):
                     implied = [idx for (tname, idx)
                                in self.db.model.implied_indexes
                                if tname == tbl.name]
-                    exp = sorted(exp + implied)
+                    exp = sorted(exp + implied, key=lambda k: k["name"])
 
                 got = sorted(insp.get_indexes(tbl.name),
                              key=lambda x: x['name'])
                 if exp != got:
-                    got_names = set([idx['name'] for idx in got])
-                    exp_names = set([idx['name'] for idx in exp])
+                    got_names = {idx['name'] for idx in got}
+                    exp_names = {idx['name'] for idx in exp}
                     got_info = dict((idx['name'], idx) for idx in got)
                     exp_info = dict((idx['name'], idx) for idx in exp)
                     for name in got_names - exp_names:
-                        diff.append("got unexpected index %s on table %s: %r"
-                                    % (name, tbl.name, got_info[name]))
+                        diff.append("got unexpected index {} on table {}: {}".format(name, tbl.name,
+                                repr(got_info[name])))
                     for name in exp_names - got_names:
-                        diff.append("missing index %s on table %s"
-                                    % (name, tbl.name))
+                        diff.append("missing index {} on table {}".format(name, tbl.name))
                     for name in got_names & exp_names:
                         gi = dict(name=name,
                                   unique=got_info[name]['unique'] and 1 or 0,
                                   column_names=sorted(got_info[name]['column_names']))
                         ei = exp_info[name]
                         if gi != ei:
-                            diff.append(
-                                "index %s on table %s differs: got %s; exp %s"
-                                % (name, tbl.name, gi, ei))
+                            diff.append(("index {} on table {} differs: got {}; exp {}"
+                                         ).format(name, tbl.name, gi, ei))
             if diff:
                 return "\n".join(diff)
+            return None
 
         d = self.db.pool.do_with_engine(comp)
 
@@ -193,9 +191,7 @@ class UpgradeTestMixin(db.RealDatabaseMixin):
         if "file is encrypted or is not a database" in str(e):
             self.flushLoggedErrors(sqlite3.DatabaseError)
             self.flushLoggedErrors(DatabaseError)
-            raise unittest.SkipTest(
-                "sqlite dump not readable on this machine %s"
-                % str(e))
+            raise unittest.SkipTest("sqlite dump not readable on this machine {}".format(str(e)))
         return e
 
     def do_test_upgrade(self, pre_callbacks=None):
@@ -218,7 +214,7 @@ class UpgradeTestEmpty(UpgradeTestMixin, unittest.TestCase):
     def test_emptydb_modelmatches(self):
         os_encoding = locale.getpreferredencoding()
         try:
-            u'\N{SNOWMAN}'.encode(os_encoding)
+            '\N{SNOWMAN}'.encode(os_encoding)
         except UnicodeEncodeError:
             # Default encoding of Windows console is 'cp1252'
             # which cannot encode the snowman.
@@ -240,17 +236,21 @@ class UpgradeTestV090b4(UpgradeTestMixin, unittest.TestCase):
     def verify_thd(self, conn):
         pass
 
+    @defer.inlineCallbacks
     def test_gotError(self):
         def upgrade():
             return defer.fail(sqlite3.DatabaseError('file is encrypted or is not a database'))
         self.db.model.upgrade = upgrade
-        self.failureResultOf(self.do_test_upgrade(), unittest.SkipTest)
+        with self.assertRaises(unittest.SkipTest):
+            yield self.do_test_upgrade()
 
+    @defer.inlineCallbacks
     def test_gotError2(self):
         def upgrade():
             return defer.fail(DatabaseError('file is encrypted or is not a database', None, None))
         self.db.model.upgrade = upgrade
-        self.failureResultOf(self.do_test_upgrade(), unittest.SkipTest)
+        with self.assertRaises(unittest.SkipTest):
+            yield self.do_test_upgrade()
 
 
 class UpgradeTestV087p1(UpgradeTestMixin, unittest.TestCase):

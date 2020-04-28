@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 from twisted.python import log
 from twisted.spread import pb
 
@@ -70,4 +67,4 @@ class StatusClient(pb.Referenceable):
     def remote_logChunk(self, buildername, build, stepname, step, logname, log,
                         channel, text):
         ChunkTypes = ["STDOUT", "STDERR", "HEADER"]
-        log.msg("logChunk[%s]: %s" % (ChunkTypes[channel], text))
+        log.msg("logChunk[{}]: {}".format(ChunkTypes[channel], text))

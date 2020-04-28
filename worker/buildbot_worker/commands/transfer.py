@@ -102,22 +102,20 @@ class WorkerFileUploadCommand(TransferCommand):
             if self.debug:
                 log.msg("Cannot open file '{0}' for upload".format(self.path))
 
-        self.sendStatus({'header': "sending {0}".format(self.path)})
+        self.sendStatus({'header': "sending {0}\n".format(self.path)})
 
         d = defer.Deferred()
         self._reactor.callLater(0, self._loop, d)
 
+        @defer.inlineCallbacks
         def _close_ok(res):
             if self.fp:
                 self.fp.close()
             self.fp = None
-            d1 = self.writer.callRemote("close")
+            yield self.writer.callRemote("close")
 
-            def _utime_ok(res):
-                return self.writer.callRemote("utime", accessed_modified)
             if self.keepstamp:
-                d1.addCallback(_utime_ok)
-            return d1
+                yield self.writer.callRemote("utime", accessed_modified)
 
         def _close_err(f):
             self.rc = 1
@@ -232,7 +230,7 @@ class WorkerDirectoryUploadCommand(WorkerFileUploadCommand):
         # Transfer it
         self.fp.seek(0)
 
-        self.sendStatus({'header': "sending {0}".format(self.path)})
+        self.sendStatus({'header': "sending {0}\n".format(self.path)})
 
         d = defer.Deferred()
         self._reactor.callLater(0, self._loop, d)

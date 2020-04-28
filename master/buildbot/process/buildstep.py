@@ -13,16 +13,9 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import PY3
-from future.utils import iteritems
-from future.utils import itervalues
-from future.utils import raise_with_traceback
-from future.utils import string_types
-from future.utils import text_type
-
+import inspect
 import re
+import sys
 
 from twisted.internet import defer
 from twisted.internet import error
@@ -60,11 +53,9 @@ from buildbot.process.results import SUCCESS
 from buildbot.process.results import WARNINGS
 from buildbot.process.results import Results
 from buildbot.process.results import worst_status
-from buildbot.util import bytes2NativeString
+from buildbot.util import bytes2unicode
 from buildbot.util import debounce
 from buildbot.util import flatten
-from buildbot.worker_transition import WorkerAPICompatMixin
-from buildbot.worker_transition import deprecatedWorkerClassMethod
 
 
 class BuildStepFailed(Exception):
@@ -112,8 +103,8 @@ class _BuildStepFactory(util.ComparableMixin):
         try:
             return self.factory(*self.args, **self.kwargs)
         except Exception:
-            log.msg("error while creating step, factory=%s, args=%s, kwargs=%s"
-                    % (self.factory, self.args, self.kwargs))
+            log.msg("error while creating step, factory={}, args={}, kwargs={}".format(self.factory,
+                    self.args, self.kwargs))
             raise
 
 
@@ -196,23 +187,24 @@ class SyncLogFileWrapper(logobserver.LogObserver):
     # write methods
 
     def addStdout(self, data):
-        data = bytes2NativeString(data)
+        data = bytes2unicode(data)
         self.chunks.append((self.STDOUT, data))
         self._delay(lambda: self.asyncLogfile.addStdout(data))
 
     def addStderr(self, data):
-        data = bytes2NativeString(data)
+        data = bytes2unicode(data)
         self.chunks.append((self.STDERR, data))
         self._delay(lambda: self.asyncLogfile.addStderr(data))
 
     def addHeader(self, data):
-        data = bytes2NativeString(data)
+        data = bytes2unicode(data)
         self.chunks.append((self.HEADER, data))
         self._delay(lambda: self.asyncLogfile.addHeader(data))
 
     def finish(self):
         self.finished = True
         self._maybeFinished()
+        # pylint: disable=unnecessary-lambda
         self._delay(lambda: self.asyncLogfile.finish())
 
     def unwrap(self):
@@ -251,7 +243,7 @@ class SyncLogFileWrapper(logobserver.LogObserver):
         self._maybeFinished()
 
 
-class BuildStepStatus(object):
+class BuildStepStatus:
     # used only for old-style steps
     pass
 
@@ -259,7 +251,6 @@ class BuildStepStatus(object):
 @implementer(interfaces.IBuildStep)
 class BuildStep(results.ResultComputingConfigMixin,
                 properties.PropertiesMixin,
-                WorkerAPICompatMixin,
                 util.ComparableMixin):
 
     alwaysRun = False
@@ -329,15 +320,14 @@ class BuildStep(results.ResultComputingConfigMixin,
 
     def __init__(self, **kwargs):
         self.worker = None
-        self._registerOldWorkerAttr("worker", name="buildslave")
 
         for p in self.__class__.parms:
             if p in kwargs:
                 setattr(self, p, kwargs.pop(p))
 
         if kwargs:
-            config.error("%s.__init__ got unexpected keyword argument(s) %s"
-                         % (self.__class__, list(kwargs)))
+            config.error("{}.__init__ got unexpected keyword argument(s) {}".format(self.__class__,
+                                                                                    list(kwargs)))
         self._pendingLogObservers = []
 
         if not isinstance(self.name, str) and not IRenderable.providedBy(self.name):
@@ -351,7 +341,8 @@ class BuildStep(results.ResultComputingConfigMixin,
         if isinstance(self.descriptionSuffix, str):
             self.descriptionSuffix = [self.descriptionSuffix]
 
-        if self.updateBuildSummaryPolicy is None:  # compute default value for updateBuildSummaryPolicy
+        if self.updateBuildSummaryPolicy is None:
+            # compute default value for updateBuildSummaryPolicy
             self.updateBuildSummaryPolicy = [EXCEPTION, RETRY, CANCELLED]
             if self.flunkOnFailure or self.haltOnFailure or self.warnOnFailure:
                 self.updateBuildSummaryPolicy.append(FAILURE)
@@ -365,7 +356,7 @@ class BuildStep(results.ResultComputingConfigMixin,
             config.error("BuildStep updateBuildSummaryPolicy must be "
                          "a list of result ids or boolean but it is %r" %
                          (self.updateBuildSummaryPolicy,))
-        self._acquiringLock = None
+        self._acquiringLocks = []
         self.stopped = False
         self.master = None
         self.statistics = {}
@@ -394,8 +385,6 @@ class BuildStep(results.ResultComputingConfigMixin,
 
     def setWorker(self, worker):
         self.worker = worker
-    deprecatedWorkerClassMethod(
-        locals(), setWorker, compat_name="setBuildSlave")
 
     @deprecate.deprecated(versions.Version("buildbot", 0, 9, 0))
     def setDefaultWorkdir(self, workdir):
@@ -418,7 +407,8 @@ class BuildStep(results.ResultComputingConfigMixin,
                     # python thinks it is actually workdir that is not existing.
                     # python will then swallow the attribute error and call
                     # __getattr__ from worker_transition
-                    raise raise_with_traceback(CallableAttributeError(e))
+                    _, _, traceback = sys.exc_info()
+                    raise CallableAttributeError(e).with_traceback(traceback)
                     # we re-raise the original exception by changing its type,
                     # but keeping its stacktrace
             else:
@@ -447,39 +437,39 @@ class BuildStep(results.ResultComputingConfigMixin,
         if self.description is not None:
             stepsumm = util.join_list(self.description)
             if self.descriptionSuffix:
-                stepsumm += u' ' + util.join_list(self.descriptionSuffix)
+                stepsumm += ' ' + util.join_list(self.descriptionSuffix)
         else:
-            stepsumm = u'running'
-        return {u'step': stepsumm}
+            stepsumm = 'running'
+        return {'step': stepsumm}
 
     def getResultSummary(self):
         if self.descriptionDone is not None or self.description is not None:
             stepsumm = util.join_list(self.descriptionDone or self.description)
             if self.descriptionSuffix:
-                stepsumm += u' ' + util.join_list(self.descriptionSuffix)
+                stepsumm += ' ' + util.join_list(self.descriptionSuffix)
         else:
-            stepsumm = u'finished'
+            stepsumm = 'finished'
 
         if self.results != SUCCESS:
-            stepsumm += u' (%s)' % Results[self.results]
+            stepsumm += ' ({})'.format(Results[self.results])
 
-        return {u'step': stepsumm}
+        return {'step': stepsumm}
 
     @defer.inlineCallbacks
     def getBuildResultSummary(self):
         summary = yield self.getResultSummary()
-        if self.results in self.updateBuildSummaryPolicy and u'build' not in summary and u'step' in summary:
-            summary[u'build'] = summary[u'step']
-        defer.returnValue(summary)
+        if self.results in self.updateBuildSummaryPolicy and \
+                'build' not in summary and 'step' in summary:
+            summary['build'] = summary['step']
+        return summary
 
     @debounce.method(wait=1)
     @defer.inlineCallbacks
     def updateSummary(self):
         def methodInfo(m):
-            import inspect
             lines = inspect.getsourcelines(m)
-            return "\nat %s:%s:\n %s" % (
-                inspect.getsourcefile(m), lines[1], "\n".join(lines[0]))
+            return "\nat {}:{}:\n {}".format(inspect.getsourcefile(m), lines[1],
+                                             "\n".join(lines[0]))
         if not self._running:
             summary = yield self.getResultSummary()
             if not isinstance(summary, dict):
@@ -491,8 +481,8 @@ class BuildStep(results.ResultComputingConfigMixin,
                 raise TypeError('getCurrentSummary must return a dictionary: ' +
                                 methodInfo(self.getCurrentSummary))
 
-        stepResult = summary.get('step', u'finished')
-        if not isinstance(stepResult, text_type):
+        stepResult = summary.get('step', 'finished')
+        if not isinstance(stepResult, str):
             raise TypeError("step result string must be unicode (got %r)"
                             % (stepResult,))
         if self.stepid is not None:
@@ -503,7 +493,7 @@ class BuildStep(results.ResultComputingConfigMixin,
 
         if not self._running:
             buildResult = summary.get('build', None)
-            if buildResult and not isinstance(buildResult, text_type):
+            if buildResult and not isinstance(buildResult, str):
                 raise TypeError("build result string must be unicode")
     # updateSummary gets patched out for old-style steps, so keep a copy we can
     # call internally for such steps
@@ -527,17 +517,19 @@ class BuildStep(results.ResultComputingConfigMixin,
         self.locks = yield self.build.render(self.locks)
 
         # convert all locks into their real form
-        self.locks = [(self.build.builder.botmaster.getLockFromLockAccess(access), access)
-                      for access in self.locks]
+        botmaster = self.build.builder.botmaster
+        self.locks = yield botmaster.getLockFromLockAccesses(self.locks, self.build.config_version)
+
         # then narrow WorkerLocks down to the worker that this build is being
         # run on
-        self.locks = [(l.getLock(self.build.workerforbuilder.worker), la)
+        self.locks = [(l.getLockForWorker(self.build.workerforbuilder.worker),
+                       la)
                       for l, la in self.locks]
 
         for l, la in self.locks:
             if l in self.build.locks:
-                log.msg("Hey, lock %s is claimed by both a Step (%s) and the"
-                        " parent Build (%s)" % (l, self, self.build))
+                log.msg(("Hey, lock {} is claimed by both a Step ({}) and the"
+                         " parent Build ({})").format(l, self, self.build))
                 raise RuntimeError("lock claimed by both Step and Build")
 
         try:
@@ -631,12 +623,12 @@ class BuildStep(results.ResultComputingConfigMixin,
             self.results = EXCEPTION
         self.releaseLocks()
 
-        defer.returnValue(self.results)
+        return self.results
 
     @defer.inlineCallbacks
     def finishUnfinishedLogs(self):
         ok = True
-        not_finished_logs = [v for (k, v) in iteritems(self.logs)
+        not_finished_logs = [v for (k, v) in self.logs.items()
                              if not v.finished]
         finish_logs = yield defer.DeferredList([v.finish() for v in not_finished_logs],
                                                consumeErrors=True)
@@ -644,26 +636,30 @@ class BuildStep(results.ResultComputingConfigMixin,
             if not success:
                 log.err(res, "when trying to finish a log")
                 ok = False
-        defer.returnValue(ok)
+        return ok
 
     def acquireLocks(self, res=None):
-        self._acquiringLock = None
         if not self.locks:
             return defer.succeed(None)
         if self.stopped:
             return defer.succeed(None)
-        log.msg("acquireLocks(step %s, locks %s)" % (self, self.locks))
+        log.msg("acquireLocks(step {}, locks {})".format(self, self.locks))
         for lock, access in self.locks:
+            for waited_lock, _, _ in self._acquiringLocks:
+                if lock is waited_lock:
+                    continue
+
             if not lock.isAvailable(self, access):
                 self._waitingForLocks = True
-                log.msg("step %s waiting for lock %s" % (self, lock))
+                log.msg("step {} waiting for lock {}".format(self, lock))
                 d = lock.waitUntilMaybeAvailable(self, access)
+                self._acquiringLocks.append((lock, access, d))
                 d.addCallback(self.acquireLocks)
-                self._acquiringLock = (lock, access, d)
                 return d
         # all locks are available, claim them all
         for lock, access in self.locks:
             lock.claim(self, access)
+        self._acquiringLocks = []
         self._waitingForLocks = False
         return defer.succeed(None)
 
@@ -730,7 +726,7 @@ class BuildStep(results.ResultComputingConfigMixin,
                         results = EXCEPTION
                 unhandled = self._start_unhandled_deferreds
 
-        defer.returnValue(results)
+        return results
 
     def finished(self, results):
         assert self._start_deferred, \
@@ -744,9 +740,7 @@ class BuildStep(results.ResultComputingConfigMixin,
 
     def isNewStyle(self):
         # **temporary** method until new-style steps are the only supported style
-        if PY3:
-            return self.run.__func__ is not BuildStep.run
-        return self.run.im_func is not BuildStep.run.im_func
+        return self.run.__func__ is not BuildStep.run
 
     def start(self):
         # New-style classes implement 'run'.
@@ -756,10 +750,10 @@ class BuildStep(results.ResultComputingConfigMixin,
 
     def interrupt(self, reason):
         self.stopped = True
-        if self._acquiringLock:
-            lock, access, d = self._acquiringLock
-            lock.stopWaitingUntilAvailable(self, access, d)
-            d.callback(None)
+        if self._acquiringLocks:
+            for (lock, access, d) in self._acquiringLocks:
+                lock.stopWaitingUntilAvailable(self, access, d)
+            self._acquiringLocks = []
 
         if self._waitingForLocks:
             self.addCompleteLog(
@@ -772,7 +766,7 @@ class BuildStep(results.ResultComputingConfigMixin,
             d.addErrback(log.err, 'while cancelling command')
 
     def releaseLocks(self):
-        log.msg("releaseLocks(%s): %s" % (self, self.locks))
+        log.msg("releaseLocks({}): {}".format(self, self.locks))
         for lock, access in self.locks:
             if lock.isOwner(self, access):
                 lock.release(self, access)
@@ -784,7 +778,6 @@ class BuildStep(results.ResultComputingConfigMixin,
 
     def workerVersion(self, command, oldversion=None):
         return self.build.getWorkerCommandVersion(command, oldversion)
-    deprecatedWorkerClassMethod(locals(), workerVersion)
 
     def workerVersionIsOlderThan(self, command, minversion):
         sv = self.build.getWorkerCommandVersion(command, None)
@@ -793,22 +786,21 @@ class BuildStep(results.ResultComputingConfigMixin,
         if [int(s) for s in sv.split(".")] < [int(m) for m in minversion.split(".")]:
             return True
         return False
-    deprecatedWorkerClassMethod(locals(), workerVersionIsOlderThan)
 
     def checkWorkerHasCommand(self, command):
         if not self.workerVersion(command):
-            message = "worker is too old, does not know about %s" % command
+            message = "worker is too old, does not know about {}".format(command)
             raise WorkerTooOldError(message)
-    deprecatedWorkerClassMethod(locals(), checkWorkerHasCommand)
 
     def getWorkerName(self):
         return self.build.getWorkerName()
-    deprecatedWorkerClassMethod(locals(), getWorkerName)
 
     def addLog(self, name, type='s', logEncoding=None):
+        if self.stepid is None:
+            raise BuildStepCancelled
         d = self.master.data.updates.addLog(self.stepid,
                                             util.bytes2unicode(name),
-                                            text_type(type))
+                                            str(type))
 
         @d.addCallback
         def newLog(logid):
@@ -836,19 +828,23 @@ class BuildStep(results.ResultComputingConfigMixin,
     @_maybeUnhandled
     @defer.inlineCallbacks
     def addCompleteLog(self, name, text):
+        if self.stepid is None:
+            raise BuildStepCancelled
         logid = yield self.master.data.updates.addLog(self.stepid,
-                                                      util.bytes2unicode(name), u't')
-        _log = self._newLog(name, u't', logid)
+                                                      util.bytes2unicode(name), 't')
+        _log = self._newLog(name, 't', logid)
         yield _log.addContent(text)
         yield _log.finish()
 
     @_maybeUnhandled
     @defer.inlineCallbacks
     def addHTMLLog(self, name, html):
+        if self.stepid is None:
+            raise BuildStepCancelled
         logid = yield self.master.data.updates.addLog(self.stepid,
-                                                      util.bytes2unicode(name), u'h')
-        _log = self._newLog(name, u'h', logid)
-        html = bytes2NativeString(html)
+                                                      util.bytes2unicode(name), 'h')
+        _log = self._newLog(name, 'h', logid)
+        html = bytes2unicode(html)
         yield _log.addContent(html)
         yield _log.finish()
 
@@ -889,8 +885,8 @@ class BuildStep(results.ResultComputingConfigMixin,
     @_maybeUnhandled
     @defer.inlineCallbacks
     def addURL(self, name, url):
-        yield self.master.data.updates.addStepURL(self.stepid, text_type(name), text_type(url))
-        defer.returnValue(None)
+        yield self.master.data.updates.addStepURL(self.stepid, str(name), str(url))
+        return None
 
     @defer.inlineCallbacks
     def runCommand(self, command):
@@ -900,7 +896,7 @@ class BuildStep(results.ResultComputingConfigMixin,
             res = yield command.run(self, self.remote, self.build.builder.name)
         finally:
             self.cmd = None
-        defer.returnValue(res)
+        return res
 
     def hasStatistic(self, name):
         return name in self.statistics
@@ -950,7 +946,7 @@ class LoggingBuildStep(BuildStep):
 
     def __init__(self, logfiles=None, lazylogfiles=False, log_eval_func=None,
                  *args, **kwargs):
-        BuildStep.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         if logfiles is None:
             logfiles = {}
@@ -984,7 +980,7 @@ class LoggingBuildStep(BuildStep):
     def startCommand(self, cmd, errorMessages=None):
         if errorMessages is None:
             errorMessages = []
-        log.msg("ShellCommand.startCommand(cmd=%s)" % (cmd,))
+        log.msg("ShellCommand.startCommand(cmd={})".format(cmd))
         log.msg("  cmd.args = %r" % (cmd.args))
         self.cmd = cmd  # so we can interrupt it
 
@@ -1020,7 +1016,7 @@ class LoggingBuildStep(BuildStep):
         d.addErrback(self.failed)
 
     def setupLogfiles(self, cmd, logfiles):
-        for logname, remotefilename in iteritems(logfiles):
+        for logname, remotefilename in logfiles.items():
             if self.lazylogfiles:
                 # Ask RemoteCommand to watch a logfile, but only add
                 # it when/if we see any data.
@@ -1094,7 +1090,7 @@ class LoggingBuildStep(BuildStep):
         return defer.succeed(None)
 
 
-class CommandMixin(object):
+class CommandMixin:
 
     @defer.inlineCallbacks
     def _runRemoteCommand(self, cmd, abandonOnFailure, args, makeResult=None):
@@ -1108,9 +1104,9 @@ class CommandMixin(object):
         if abandonOnFailure and cmd.didFail():
             raise BuildStepFailed()
         if makeResult:
-            defer.returnValue(makeResult(cmd))
+            return makeResult(cmd)
         else:
-            defer.returnValue(not cmd.didFail())
+            return not cmd.didFail()
 
     def runRmdir(self, dir, log=None, abandonOnFailure=True):
         return self._runRemoteCommand('rmdir', abandonOnFailure,
@@ -1130,7 +1126,7 @@ class CommandMixin(object):
             makeResult=lambda cmd: cmd.updates['files'][0])
 
 
-class ShellMixin(object):
+class ShellMixin:
 
     command = None
     env = {}
@@ -1175,8 +1171,7 @@ class ShellMixin(object):
             prohibitArgs = []
 
         def bad(arg):
-            config.error("invalid %s argument %s" %
-                         (self.__class__.__name__, arg))
+            config.error("invalid {} argument {}".format(self.__class__.__name__, arg))
         for arg in self._shellMixinArgs:
             if arg not in constructorArgs:
                 continue
@@ -1195,8 +1190,8 @@ class ShellMixin(object):
     def makeRemoteShellCommand(self, collectStdout=False, collectStderr=False,
                                stdioLogName='stdio',
                                **overrides):
-        kwargs = dict([(arg, getattr(self, arg))
-                       for arg in self._shellMixinArgs])
+        kwargs = {arg: getattr(self, arg)
+                  for arg in self._shellMixinArgs}
         kwargs.update(overrides)
         stdio = None
         if stdioLogName is not None:
@@ -1252,7 +1247,7 @@ class ShellMixin(object):
         # set up logging
         if stdio is not None:
             cmd.useLog(stdio, False)
-        for logname, remotefilename in iteritems(self.logfiles):
+        for logname, remotefilename in self.logfiles.items():
             if self.lazylogfiles:
                 # it's OK if this does, or does not, return a Deferred
                 def callback(cmd_arg, local_logname=logname):
@@ -1264,13 +1259,13 @@ class ShellMixin(object):
                 # and tell the RemoteCommand to feed it
                 cmd.useLog(newlog, False)
 
-        defer.returnValue(cmd)
+        return cmd
 
     def getResultSummary(self):
         summary = util.command_to_string(self.command)
         if not summary:
             return super(ShellMixin, self).getResultSummary()
-        return {u'step': summary}
+        return {'step': summary}
 
 # Parses the logs for a list of regexs. Meant to be invoked like:
 # regexes = ((re.compile(...), FAILURE), (re.compile(...), WARNINGS))
@@ -1290,9 +1285,9 @@ def regex_log_evaluator(cmd, _, regexes):
         # we won't be changing "worst" unless possible_status is worse than it,
         # so we don't even need to check the log if that's the case
         if worst_status(worst, possible_status) == possible_status:
-            if isinstance(err, string_types):
-                err = re.compile(".*%s.*" % err, re.DOTALL)
-            for l in itervalues(cmd.logs):
+            if isinstance(err, str):
+                err = re.compile(".*{}.*".format(err), re.DOTALL)
+            for l in cmd.logs.values():
                 if err.search(l.getText()):
                     worst = possible_status
     return worst

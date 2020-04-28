@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import json
 import os
@@ -30,9 +28,9 @@ from buildbot.util import in_reactor
 @in_reactor
 @defer.inlineCallbacks
 def dataspec(config):
-    master = yield fakemaster.make_master()
+    master = yield fakemaster.make_master(None, wantRealReactor=True)
     data = connector.DataConnector()
-    data.setServiceParent(master)
+    yield data.setServiceParent(master)
     if config['out'] != '--':
         dirs = os.path.dirname(config['out'])
         if dirs and not os.path.exists(dirs):
@@ -44,4 +42,4 @@ def dataspec(config):
         f.write("window." + config['global'] + '=')
     f.write(json.dumps(data.allEndpoints(), indent=2))
     f.close()
-    defer.returnValue(0)
+    return 0

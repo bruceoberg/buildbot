@@ -89,8 +89,6 @@ disable=
   maybe-no-member,
   locally-disabled,
   bad-classmethod-argument,
-  line-too-long,
-  old-style-class,
   method-hidden,
   no-name-in-module,
   no-member,
@@ -99,7 +97,7 @@ disable=
   unexpected-keyword-arg,
   redundant-keyword-arg,
   import-error,
-  cyclic-import,
+  import-outside-toplevel,
   exec-used,
   star-args,
   unreachable,
@@ -107,9 +105,6 @@ disable=
   pointless-statement,
   pointless-string-statement,
   expression-not-assigned,
-  unnecessary-pass,
-  unnecessary-lambda,
-  deprecated-lambda,
   useless-else-on-loop,
   bad-builtin,
   attribute-defined-outside-init,
@@ -121,20 +116,14 @@ disable=
   no-init,
   non-parent-init-called,
   bad-indentation,
-  relative-import,
   global-statement,
   unused-variable,
   redefined-outer-name,
   redefined-builtin,
-  redefined-variable-type,
   unidiomatic-typecheck,
   undefined-loop-variable,
   unbalanced-tuple-unpacking,
-  unpacking-non-sequence,
-  raising-string,
   broad-except,
-  nonstandard-exception,
-  anomalous-unicode-escape-in-string,
   bad-open-mode,
   superfluous-parens,
   no-self-argument,
@@ -143,7 +132,22 @@ disable=
   bad-continuation,
   keyword-arg-before-vararg,
   unsubscriptable-object,
-  inconsistent-return-statements  # (implicit return None)
+  useless-object-inheritance,
+  deprecated-method,
+  useless-return,
+  no-else-return,
+  assignment-from-none,
+  comparison-with-callable,
+  comparison-with-itself,
+  assignment-from-no-return,
+  stop-iteration-return,
+  old-style-class,
+  redefined-variable-type,
+  deprecated-lambda,
+  bad-string-format-type, # https://github.com/PyCQA/pylint/issues/2631
+  duplicate-string-formatting-argument,
+  cyclic-import,  # only happens when pylint is ran in non-parallel mode
+
 
 [REPORTS]
 
@@ -225,7 +229,7 @@ ignore-imports=no
 [FORMAT]
 
 # Maximum number of characters on a single line.
-max-line-length=80
+max-line-length=100
 
 # Maximum number of lines in a module
 max-module-lines=1000

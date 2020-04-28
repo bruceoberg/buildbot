@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-
 from twisted.internet import defer
 
 from buildbot.data import base
@@ -55,9 +51,10 @@ class Properties(base.ResourceType):
     entityType = types.SourcedProperties()
 
     def generateUpdateEvent(self, buildid, newprops):
-        # This event cannot use the produceEvent mechanism, as the properties resource type is a bit specific
-        # (this is a dictionary collection)
-        # We only send the new properties, and count on the client to merge the resulting properties dict
+        # This event cannot use the produceEvent mechanism, as the properties resource type is a bit
+        # specific (this is a dictionary collection)
+        # We only send the new properties, and count on the client to merge the resulting properties
+        # dict
         # We are good, as there is no way to delete a property.
         routingKey = ('builds', str(buildid), "properties", "update")
         newprops = self.sanitizeMessage(newprops)
@@ -68,13 +65,15 @@ class Properties(base.ResourceType):
     def setBuildProperties(self, buildid, properties):
         to_update = {}
         oldproperties = yield self.master.data.get(('builds', str(buildid), "properties"))
-        for k, v in iteritems(properties.getProperties().asDict()):
+        properties = properties.getProperties()
+        properties = yield properties.render(properties.asDict())
+        for k, v in properties.items():
             if k in oldproperties and oldproperties[k] == v:
                 continue
             to_update[k] = v
 
         if to_update:
-            for k, v in iteritems(to_update):
+            for k, v in to_update.items():
                 yield self.master.db.builds.setBuildProperty(
                     buildid, k, v[0], v[1])
             yield self.generateUpdateEvent(buildid, to_update)
@@ -85,4 +84,4 @@ class Properties(base.ResourceType):
         res = yield self.master.db.builds.setBuildProperty(
             buildid, name, value, source)
         yield self.generateUpdateEvent(buildid, dict(name=(value, source)))
-        defer.returnValue(res)
+        return res

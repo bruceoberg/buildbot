@@ -65,6 +65,7 @@ Several small utilities are available at the top-level :mod:`buildbot.util` pack
 
     Convert a UNIX epoch timestamp to a Python datetime object, in the UTC timezone.
     Note that timestamps specify UTC time (modulo leap seconds and a few other minor details).
+    If the argument is None, returns None.
 
 .. py:function:: datetime2epoch(datetime)
 
@@ -72,6 +73,7 @@ Several small utilities are available at the top-level :mod:`buildbot.util` pack
     :returns: equivalent epoch time (integer)
 
     Convert an arbitrary Python datetime object into a UNIX epoch timestamp.
+    If the argument is None, returns None.
 
 .. py:data:: UTC
 
@@ -143,7 +145,8 @@ Several small utilities are available at the top-level :mod:`buildbot.util` pack
         3
         4
 
-     Use this for extremely large lists to keep memory-usage down and improve performance when you only need to iterate once.
+     Use this for extremely large lists to keep memory-usage down and improve performance when
+     you only need to iterate once.
 
 .. py:function:: none_or_str(obj)
 
@@ -198,10 +201,12 @@ Several small utilities are available at the top-level :mod:`buildbot.util` pack
     It returns the result of the wrapped function.
     If the wrapped function fails, its traceback will be printed, the reactor halted, and ``None`` returned.
 
-.. py:function:: asyncSleep(secs)
+.. py:function:: asyncSleep(secs, reactor=None)
 
     Yield a deferred that will fire with no result after ``secs`` seconds.
     This is the asynchronous equivalent to ``time.sleep``, and can be useful in tests.
+    In case a custom reactor is used, the ``reactor`` parameter may be set.
+    By default, ``twisted.internet.reactor`` is used.
 
 .. py:function:: stripUrlPassword(url)
 
@@ -510,7 +515,7 @@ The ``@poll.method`` decorator makes this behavior easy and reliable.
 .. py:function:: method
 
     This decorator replaces the decorated method with a :py:class:`Poller` instance configured to call the decorated method periodically.
-    The poller is initially stopped, so peroidic calls will not begin until its ``start`` method is called.
+    The poller is initially stopped, so periodic calls will not begin until its ``start`` method is called.
     The start polling interval is specified when the poller is started.
 
     If the decorated method fails or raises an exception, the Poller logs the error and re-schedules the call for the next interval.
@@ -784,7 +789,7 @@ The classes in the :py:mod:`buildbot.util.subscription` module are used for deal
 
         Get a named state value from the object's state.
 
-    .. py:method:: getState(name, value)
+    .. py:method:: setState(name, value)
 
         :param name: the name of the value to change
         :param value: the value to set - must be a JSONable object
@@ -815,7 +820,7 @@ This module makes it easy to manipulate identifiers.
     :param str: string to coerce to an identifier
     :returns: identifier of maximum length ``maxLength``
 
-    Coerce a string (assuming ASCII for bytestrings) into an identifier.
+    Coerce a string (assuming UTF-8 for bytestrings) into an identifier.
     This method will replace any invalid characters with ``_`` and truncate to the given length.
 
 .. py:function:: incrementIdentifier(maxLength, str)
@@ -1021,7 +1026,7 @@ For example, a particular daily scheduler could be configured on multiple master
     .. py:method:: __init__(self, *args, **kwargs)
 
         Constructor of the service.
-        The constructor initialize the service, and store the config arguments in private attributes.
+        The constructor initializes the service, calls checkConfig() and stores the config arguments in private attributes.
 
         This should *not* be overridden by subclasses, as they should rather override checkConfig.
 
@@ -1138,6 +1143,8 @@ For example, a particular daily scheduler could be configured on multiple master
 :py:mod:`buildbot.util.httpclientservice`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+.. py:module:: buildbot.util.httpclientservice
+
 .. py:class:: HTTPClientService
 
     This class implements a SharedService for doing http client access.
@@ -1252,6 +1259,8 @@ For example, a particular daily scheduler could be configured on multiple master
 :py:mod:`buildbot.test.fake.httpclientservice`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+.. py:module:: buildbot.test.fake.httpclientservice
+
 .. py:class:: HTTPClientService
 
     This class implements a fake version of the :class:`buildbot.util.httpclientservice.HTTPClientService` that needs to be used for testing services which needs http client access.
@@ -1303,7 +1312,8 @@ For example, a particular daily scheduler could be configured on multiple master
 
                 @defer.inlineCallbacks
                 def reconfigService(self, baseurl):
-                    self._http = yield httpclientservice.HTTPClientService.getService(self.master, baseurl)
+                    self._http = yield httpclientservice.HTTPClientService.getService(
+                        self.master, baseurl)
 
                 @defer.inlineCallbacks
                 def doGetRoot(self):
@@ -1312,8 +1322,9 @@ For example, a particular daily scheduler could be configured on multiple master
                     if res.code != 200:
                         raise Exception("%d: server did not succeed" % (res.code))
                     res_json = yield res.json()
-                    # res.json() returns a deferred to account for the time needed to fetch the entire body
-                    defer.returnValue(res_json)
+                    # res.json() returns a deferred to account for the time needed to fetch the
+                    # entire body
+                    return res_json
 
 
             class Test(unittest.SynchronousTestCase):
@@ -1321,8 +1332,9 @@ For example, a particular daily scheduler could be configured on multiple master
                 def setUp(self):
                     baseurl = 'http://127.0.0.1:8080'
                     self.parent = service.MasterService()
-                    self._http = self.successResultOf(fakehttpclientservice.HTTPClientService.getFakeService(
-                        self.parent, self, baseurl))
+                    self._http = self.successResultOf(
+                        fakehttpclientservice.HTTPClientService.getFakeService(self.parent, self,
+                                                                               baseurl))
                     self.tested = myTestedService(baseurl)
 
                     self.successResultOf(self.tested.setServiceParent(self.parent))
@@ -1344,6 +1356,8 @@ For example, a particular daily scheduler could be configured on multiple master
 
 :py:mod:`buildbot.util.ssl`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. py:module:: buildbot.util.ssl
 
 This module is a copy of :py:mod:`twisted.internet.ssl` except it won't crash with :py:class:`ImportError` if :py:mod:`pyopenssl` is not installed.
 If you need to use :py:mod:`twisted.internet.ssl`, please instead use :py:mod:`buildbot.util.ssl`, and call :py:func:`ssl.ensureHasSSL` in :py:meth:`checkConfig` to provide helpful message to the user, only if he enabled SSL for your plugin.

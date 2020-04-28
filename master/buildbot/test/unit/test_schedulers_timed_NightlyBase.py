@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import time
 
 from twisted.internet import defer
@@ -23,6 +20,7 @@ from twisted.trial import unittest
 
 from buildbot.schedulers import timed
 from buildbot.test.util import scheduler
+from buildbot.test.util.misc import TestReactorMixin
 
 try:
     from multiprocessing import Process
@@ -31,7 +29,8 @@ except ImportError:
     Process = None
 
 
-class NightlyBase(scheduler.SchedulerMixin, unittest.TestCase):
+class NightlyBase(scheduler.SchedulerMixin, TestReactorMixin,
+                  unittest.TestCase):
 
     """detailed getNextBuildTime tests"""
 
@@ -39,6 +38,7 @@ class NightlyBase(scheduler.SchedulerMixin, unittest.TestCase):
     SCHEDULERID = 33
 
     def setUp(self):
+        self.setUpTestReactor()
         self.setUpScheduler()
 
     def makeScheduler(self, firstBuildDuration=0, **kwargs):
@@ -54,8 +54,8 @@ class NightlyBase(scheduler.SchedulerMixin, unittest.TestCase):
                 for t in (lastActuated, expected)]
             got_ep = yield sched.getNextBuildTime(lastActuated_ep)
             self.assertEqual(got_ep, expected_ep,
-                             "%s -> %s != %s" % (lastActuated, time.localtime(got_ep),
-                                                 expected))
+                             "{} -> {} != {}".format(lastActuated, time.localtime(got_ep),
+                             expected))
 
     def test_getNextBuildTime_hourly(self):
         sched = self.makeScheduler(name='test', builderNames=['test'])
@@ -264,8 +264,10 @@ class NightlyBase(scheduler.SchedulerMixin, unittest.TestCase):
                                              )
 
     def test_getNextBuildTime_dayOfWeek_multiple_hours(self):
+        # Tuesday, Thursday (2011-1-1 was a Saturday)
         sched = self.makeScheduler(name='test', builderNames=['test'],
-                                   dayOfWeek=[1, 3], hour=1)  # Tuesday, Thursday (2011-1-1 was a Saturday)
+                                   dayOfWeek=[1, 3], hour=1)
+
         return self.do_getNextBuildTime_test(sched,
                                              ((2011, 1, 3, 22, 19),
                                               (2011, 1, 4, 1, 0)),

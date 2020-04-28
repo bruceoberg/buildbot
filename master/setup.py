@@ -19,8 +19,6 @@
 Standard setup script.
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import glob
 import inspect
@@ -35,10 +33,7 @@ from setuptools import setup
 
 from buildbot import version
 
-if "bdist_wheel" in sys.argv:
-    BUILDING_WHEEL = True
-else:
-    BUILDING_WHEEL = False
+BUILDING_WHEEL = bool("bdist_wheel" in sys.argv)
 
 
 def include(d, e):
@@ -47,7 +42,7 @@ def include(d, e):
     'd' -- A directory
     'e' -- A glob pattern"""
 
-    return (d, [f for f in glob.glob('%s/%s' % (d, e)) if os.path.isfile(f)])
+    return (d, [f for f in glob.glob('{}/{}'.format(d, e)) if os.path.isfile(f)])
 
 
 def include_statics(d):
@@ -68,10 +63,10 @@ class install_data_twisted(install_data):
         self.set_undefined_options('install',
                                    ('install_lib', 'install_dir'),
                                    )
-        install_data.finalize_options(self)
+        super().finalize_options()
 
     def run(self):
-        install_data.run(self)
+        super().run()
         # ensure there's a buildbot/VERSION file
         fn = os.path.join(self.install_dir, 'buildbot', 'VERSION')
         open(fn, 'w').write(version)
@@ -106,7 +101,7 @@ def define_plugin_entry(name, module_name):
         entry, name = name
     else:
         entry = name
-    return '%s = %s:%s' % (entry, module_name, name)
+    return '{} = {}:{}'.format(entry, module_name, name)
 
 
 def concat_dicts(*dicts):
@@ -131,6 +126,7 @@ def define_plugin_entries(groups):
 
     return result
 
+
 __file__ = inspect.getframeinfo(inspect.currentframe()).filename
 
 with open(os.path.join(os.path.dirname(__file__), 'README.rst')) as long_d_f:
@@ -146,26 +142,21 @@ setup_args = {
     'maintainer': "Dustin J. Mitchell",
     'maintainer_email': "dustin@v.igoro.us",
     'url': "http://buildbot.net/",
-    'license': "GNU GPL",
     'classifiers': [
         'Development Status :: 5 - Production/Stable',
         'Environment :: No Input/Output (Daemon)',
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: GNU General Public License (GPL)',
+        'License :: OSI Approved :: GNU General Public License v2 (GPLv2)',
         'Topic :: Software Development :: Build Tools',
         'Topic :: Software Development :: Testing',
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6'
     ],
 
     'packages': [
         "buildbot",
-        "buildbot.buildslave",
         "buildbot.configurators",
         "buildbot.worker",
         "buildbot.worker.protocols",
@@ -175,6 +166,7 @@ setup_args = {
         "buildbot.db",
         "buildbot.db.migrate.versions",
         "buildbot.db.types",
+        "buildbot.machine",
         "buildbot.monkeypatches",
         "buildbot.mq",
         "buildbot.plugins",
@@ -209,9 +201,6 @@ setup_args = {
         "buildbot.test.unit",
     ]),
     'data_files': [
-        ("buildbot", [
-            "buildbot/buildbot.png",
-        ]),
         include("buildbot/reporters/templates", "*.txt"),
         ("buildbot/db/migrate", [
             "buildbot/db/migrate/migrate.cfg",
@@ -225,6 +214,8 @@ setup_args = {
         include("buildbot/spec/types", "*.raml"),
         include("buildbot/test/unit/test_templates_dir", "*.html"),
         include("buildbot/test/unit/test_templates_dir/plugin", "*.*"),
+        include("buildbot/test/integration/pki", "*.*"),
+        include("buildbot/test/integration/pki/ca", "*.*"),
     ] + include_statics("buildbot/www/static"),
     'cmdclass': {'install_data': install_data_twisted,
                  'sdist': our_sdist},
@@ -237,7 +228,8 @@ setup_args = {
             ('buildbot.changes.bitbucket', ['BitbucketPullrequestPoller']),
             ('buildbot.changes.github', ['GitHubPullrequestPoller']),
             ('buildbot.changes.bonsaipoller', ['BonsaiPoller']),
-            ('buildbot.changes.gerritchangesource', ['GerritChangeSource']),
+            ('buildbot.changes.gerritchangesource', [
+                'GerritChangeSource', 'GerritEventLogPoller']),
             ('buildbot.changes.gitpoller', ['GitPoller']),
             ('buildbot.changes.hgpoller', ['HgPoller']),
             ('buildbot.changes.p4poller', ['P4Source']),
@@ -257,6 +249,7 @@ setup_args = {
         ]),
         ('buildbot.secrets', [
             ('buildbot.secrets.providers.file', ['SecretInAFile']),
+            ('buildbot.secrets.providers.passwordstore', ['SecretInPass']),
             ('buildbot.secrets.providers.vault', ['HashiCorpVaultSecretProvider'])
         ]),
         ('buildbot.worker', [
@@ -265,8 +258,11 @@ setup_args = {
             ('buildbot.worker.libvirt', ['LibVirtWorker']),
             ('buildbot.worker.openstack', ['OpenStackLatentWorker']),
             ('buildbot.worker.docker', ['DockerLatentWorker']),
-            ('buildbot.worker.hyper', ['HyperLatentWorker']),
+            ('buildbot.worker.kubernetes', ['KubeLatentWorker']),
             ('buildbot.worker.local', ['LocalWorker']),
+        ]),
+        ('buildbot.machine', [
+            ('buildbot.machine.base', ['Machine']),
         ]),
         ('buildbot.steps', [
             ('buildbot.process.buildstep', ['BuildStep']),
@@ -302,8 +298,9 @@ setup_args = {
             ('buildbot.steps.source.cvs', ['CVS']),
             ('buildbot.steps.source.darcs', ['Darcs']),
             ('buildbot.steps.source.gerrit', ['Gerrit']),
-            ('buildbot.steps.source.git', ['Git']),
+            ('buildbot.steps.source.git', ['Git', 'GitCommit', 'GitPush', 'GitTag']),
             ('buildbot.steps.source.github', ['GitHub']),
+            ('buildbot.steps.source.gitlab', ['GitLab']),
             ('buildbot.steps.source.mercurial', ['Mercurial']),
             ('buildbot.steps.source.mtn', ['Monotone']),
             ('buildbot.steps.source.p4', ['P4']),
@@ -336,9 +333,14 @@ setup_args = {
             ('buildbot.reporters.github', ['GitHubStatusPush', 'GitHubCommentPush']),
             ('buildbot.reporters.gitlab', ['GitLabStatusPush']),
             ('buildbot.reporters.stash', ['StashStatusPush']),
-            ('buildbot.reporters.bitbucketserver', ['BitbucketServerStatusPush', 'BitbucketServerPRCommentPush']),
+            ('buildbot.reporters.bitbucketserver', [
+                'BitbucketServerStatusPush',
+                'BitbucketServerPRCommentPush'
+            ]),
             ('buildbot.reporters.bitbucket', ['BitbucketStatusPush']),
             ('buildbot.reporters.irc', ['IRC']),
+            ('buildbot.reporters.telegram', ['TelegramBot']),
+            ('buildbot.reporters.zulip', ['ZulipStatusPush']),
         ]),
         ('buildbot.util', [
             # Connection seems to be a way too generic name, though
@@ -391,6 +393,9 @@ setup_args = {
                 ('repo.DownloadsFromProperties',
                  'RepoDownloadsFromProperties')]),
             ('buildbot.steps.shellsequence', ['ShellArg']),
+            ('buildbot.util.kubeclientservice', [
+                'KubeHardcodedConfig', 'KubeCtlProxyConfigLoader', 'KubeInClusterConfigLoader'
+            ]),
             ('buildbot.www.avatar', ['AvatarGravatar']),
             ('buildbot.www.auth', [
                 'UserPasswordAuth', 'HTPasswdAuth', 'RemoteUserAuth', 'CustomAuth']),
@@ -406,7 +411,9 @@ setup_args = {
                 'RolesFromDomain']),
             ('buildbot.www.authz.endpointmatchers', [
                 'AnyEndpointMatcher', 'StopBuildEndpointMatcher', 'ForceBuildEndpointMatcher',
-                'RebuildBuildEndpointMatcher', 'AnyControlEndpointMatcher', 'EnableSchedulerEndpointMatcher']),
+                'RebuildBuildEndpointMatcher', 'AnyControlEndpointMatcher',
+                'EnableSchedulerEndpointMatcher'
+            ]),
         ]),
         ('buildbot.webhooks', [
             ('buildbot.www.hooks.base', ['base']),
@@ -433,10 +440,10 @@ setup_args = {
 if sys.platform == "win32":
     setup_args['zip_safe'] = False
 
-py_27 = sys.version_info[0] > 2 or (
-    sys.version_info[0] == 2 and sys.version_info[1] >= 7)
-if not py_27:
-    raise RuntimeError("Buildbot master requires at least Python-2.7")
+py_35 = sys.version_info[0] > 3 or (
+    sys.version_info[0] == 3 and sys.version_info[1] >= 5)
+if not py_35:
+    raise RuntimeError("Buildbot master requires at least Python-3.5")
 
 # pip<1.4 doesn't have the --pre flag, and will thus attempt to install alpha
 # and beta versions of Buildbot.  Prevent that from happening.
@@ -456,10 +463,7 @@ if 'a' in version or 'b' in version:
         if LooseVersion(pip_dist.version) < LooseVersion('1.4'):
             raise RuntimeError(VERSION_MSG)
 
-if sys.version_info[0] >= 3:
-    twisted_ver = ">= 17.9.0"
-else:
-    twisted_ver = ">= 16.1.0"
+twisted_ver = ">= 17.9.0"
 autobahn_ver = ">= 0.16.0"
 txaio_ver = ">= 2.2.2"
 
@@ -472,14 +476,13 @@ setup_args['install_requires'] = [
     'Jinja2 >= 2.1',
     # required for tests, but Twisted requires this anyway
     'zope.interface >= 4.1.1',
-    # python-future required for py2/3 compatibility
-    'future',
-    'sqlalchemy>=0.8.0',
+    'sqlalchemy>=1.1.0',
     'sqlalchemy-migrate>=0.9',
     'python-dateutil>=1.5',
     'txaio ' + txaio_ver,
     'autobahn ' + autobahn_ver,
     'PyJWT',
+    'pyyaml'
 ]
 
 # Unit test dependencies.
@@ -492,9 +495,8 @@ test_deps = [
     # boto3 and moto required for running EC2 tests
     'boto3',
     'moto',
-    # txgithub required to run buildbot.status.github module tests
-    'txgithub',
     'mock>=2.0.0',
+    'parameterized',
 ]
 if sys.platform != 'win32':
     test_deps += [
@@ -533,13 +535,13 @@ setup_args['extras_require'] = {
     ],
     'docs': [
         'docutils<0.13.0',
-        'sphinx>1.4.0',
+        'sphinx>1.4.0,<2.1.0',
         'sphinxcontrib-blockdiag',
         'sphinxcontrib-spelling',
         'pyenchant',
         'docutils>=0.8',
         'sphinx-jinja',
-        'towncrier'
+        'towncrier',
     ],
 }
 

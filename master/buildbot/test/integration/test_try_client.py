@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import os
 
@@ -38,7 +36,7 @@ def waitFor(fn):
     while True:
         res = yield fn()
         if res:
-            defer.returnValue(res)
+            return res
         yield util.asyncSleep(.01)
 
 
@@ -54,7 +52,7 @@ class Schedulers(RunMasterBase, www.RequiresWwwMixin):
             with open(tmpfile, "w") as f:
                 f.write(pp.job)
             os.rename(tmpfile, newfile)
-            log.msg("wrote jobfile %s" % newfile)
+            log.msg("wrote jobfile {}".format(newfile))
             # get the scheduler to poll this directory now
             d = self.sch.watcher.poll()
             d.addErrback(log.err, 'while polling')
@@ -82,7 +80,7 @@ class Schedulers(RunMasterBase, www.RequiresWwwMixin):
 
         def output(*msg):
             msg = ' '.join(map(str, msg))
-            log.msg("output: %s" % msg)
+            log.msg("output: {}".format(msg))
             self.output.append(msg)
         self.patch(tryclient, 'output', output)
 
@@ -110,7 +108,7 @@ class Schedulers(RunMasterBase, www.RequiresWwwMixin):
         if isinstance(self.sch, trysched.Try_Userpass):
             def getSchedulerPort():
                 if not self.sch.registrations:
-                    return
+                    return None
                 self.serverPort = self.sch.registrations[0].getPort()
                 log.msg("Scheduler registered at port %d" % self.serverPort)
                 return True
@@ -126,7 +124,7 @@ class Schedulers(RunMasterBase, www.RequiresWwwMixin):
             trysched.Try_Userpass('try', ['a'], 0, [('u', b'p')]))
         yield self.runClient({
             'connect': 'pb',
-            'master': '127.0.0.1:%s' % self.serverPort,
+            'master': '127.0.0.1:{}'.format(self.serverPort),
             'username': 'u',
             'passwd': b'p',
         })
@@ -146,7 +144,7 @@ class Schedulers(RunMasterBase, www.RequiresWwwMixin):
             trysched.Try_Userpass('try', ['a'], 0, [('u', b'p')]))
         yield self.runClient({
             'connect': 'pb',
-            'master': '127.0.0.1:%s' % self.serverPort,
+            'master': '127.0.0.1:{}'.format(self.serverPort),
             'username': 'u',
             'passwd': b'p',
             'wait': True,
@@ -169,7 +167,7 @@ class Schedulers(RunMasterBase, www.RequiresWwwMixin):
         yield self.runClient({
             'connect': 'pb',
             'get-builder-names': True,
-            'master': '127.0.0.1:%s' % self.serverPort,
+            'master': '127.0.0.1:{}'.format(self.serverPort),
             'username': 'u',
             'passwd': b'p',
         })

@@ -13,23 +13,22 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
+
+from random import randint
 
 from twisted.internet import defer
-from twisted.internet import reactor
 from twisted.internet import task
 from twisted.python import log
 
 _poller_instances = None
 
 
-class Poller(object):
+class Poller:
 
     __slots__ = ['fn', 'instance', 'loop', 'started', 'running',
                  'pending', 'stopDeferreds', '_reactor']
 
-    def __init__(self, fn, instance):
+    def __init__(self, fn, instance, reactor):
         self.fn = fn
         self.instance = instance
         self.loop = None
@@ -39,20 +38,22 @@ class Poller(object):
         self.stopDeferreds = []
         self._reactor = reactor
 
-    def _run(self):
+    @defer.inlineCallbacks
+    def _run(self, random_delay_min=0, random_delay_max=0):
         self.running = True
-        d = defer.maybeDeferred(self.fn, self.instance)
-        # log all errors, so d is always successful
-        d.addErrback(log.err, 'while running %s' % (self.fn,))
+        if random_delay_max:
+            yield task.deferLater(self._reactor, randint(random_delay_min, random_delay_max),
+                                  lambda: None)
+        try:
+            yield defer.maybeDeferred(self.fn, self.instance)
+        except Exception as e:
+            log.err(e, 'while running {}'.format(self.fn))
 
-        @d.addCallback
-        def done(_):
-            self.running = False
-            # loop if there's another pending call
-            if self.pending:
-                self.pending = False
-                return self._run()
-        return d
+        self.running = False
+        # loop if there's another pending call
+        if self.pending:
+            self.pending = False
+            yield self._run(random_delay_min, random_delay_max)
 
     def __call__(self):
         if self.started:
@@ -65,10 +66,10 @@ class Poller(object):
                 self.loop.reset()
                 self.loop.interval = old_interval
 
-    def start(self, interval, now=False):
+    def start(self, interval, now=False, random_delay_min=0, random_delay_max=0):
         assert not self.started
         if not self.loop:
-            self.loop = task.LoopingCall(self._run)
+            self.loop = task.LoopingCall(self._run, random_delay_min, random_delay_max)
             self.loop.clock = self._reactor
         stopDeferred = self.loop.start(interval, now=now)
 
@@ -89,8 +90,7 @@ class Poller(object):
         return defer.succeed(None)
 
 
-class _Descriptor(object):
-
+class _Descriptor:
     def __init__(self, fn, attrName):
         self.fn = fn
         self.attrName = attrName
@@ -99,7 +99,7 @@ class _Descriptor(object):
         try:
             poller = getattr(instance, self.attrName)
         except AttributeError:
-            poller = Poller(self.fn, instance)
+            poller = Poller(self.fn, instance, instance.master.reactor)
             setattr(instance, self.attrName, poller)
             # track instances when testing
             if _poller_instances is not None:

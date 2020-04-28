@@ -13,11 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from future.builtins import range
-
 import copy
 import errno
 import os
@@ -26,7 +21,6 @@ import sys
 import traceback
 from contextlib import contextmanager
 
-from twisted.internet import defer
 from twisted.python import runtime
 from twisted.python import usage
 
@@ -40,7 +34,8 @@ def captureErrors(errors, msg):
     except errors as e:
         print(msg)
         print(e)
-        defer.returnValue(1)
+        return 1
+    return None
 
 
 class BusyError(RuntimeError):
@@ -110,7 +105,7 @@ def checkBasedir(config):
 
 def loadConfig(config, configFileName='master.cfg'):
     if not config['quiet']:
-        print("checking %s" % configFileName)
+        print("checking {}".format(configFileName))
 
     try:
         master_cfg = config_module.FileLoader(
@@ -120,30 +115,29 @@ def loadConfig(config, configFileName='master.cfg'):
 
         for msg in e.errors:
             print("  " + msg)
-        return
+        return None
     except Exception:
         print("Errors loading configuration:")
         traceback.print_exc(file=sys.stdout)
-        return
+        return None
 
     return master_cfg
 
 
 def isBuildmasterDir(dir):
     def print_error(error_message):
-        print("%s\ninvalid buildmaster directory '%s'" % (error_message, dir))
+        print("{}\ninvalid buildmaster directory '{}'".format(error_message, dir))
 
     buildbot_tac = os.path.join(dir, "buildbot.tac")
     try:
         with open(buildbot_tac) as f:
             contents = f.read()
     except IOError as exception:
-        print_error("error reading '%s': %s" %
-                    (buildbot_tac, exception.strerror))
+        print_error("error reading '{}': {}".format(buildbot_tac, exception.strerror))
         return False
 
     if "Application('buildmaster')" not in contents:
-        print_error("unexpected content in '%s'" % buildbot_tac)
+        print_error("unexpected content in '{}'".format(buildbot_tac))
         return False
 
     return True
@@ -199,12 +193,12 @@ class SubcommandOptions(usage.Options):
                 optfile = self.optionsFile = self.loadOptionsFile()
                 # pylint: disable=not-an-iterable
                 for optfile_name, option_name in self.buildbotOptions:
-                    for i in range(len(op)):
+                    for i, val in enumerate(op):
                         if (op[i][0] == option_name and
                                 optfile_name in optfile):
                             op[i] = list(op[i])
                             op[i][2] = optfile[optfile_name]
-        usage.Options.__init__(self, *args)
+        super().__init__(*args)
         if hasattr(cls, 'optParameters'):
             cls.optParameters = old_optParameters
 
@@ -251,7 +245,7 @@ class SubcommandOptions(usage.Options):
             if os.path.isdir(d):
                 if runtime.platformType != 'win32':
                     if os.stat(d)[stat.ST_UID] != os.getuid():
-                        print("skipping %s because you don't own it" % d)
+                        print("skipping {} because you don't own it".format(d))
                         continue  # security, skip other people's directories
                 optfile = os.path.join(d, "options")
                 if os.path.exists(optfile):
@@ -260,7 +254,7 @@ class SubcommandOptions(usage.Options):
                             options = f.read()
                         exec(options, localDict)
                     except Exception:
-                        print("error while reading %s" % optfile)
+                        print("error while reading {}".format(optfile))
                         raise
                     break
 
@@ -279,7 +273,7 @@ class SubcommandOptions(usage.Options):
             raise usage.UsageError(msg)
 
 
-class BasedirMixin(object):
+class BasedirMixin:
 
     """SubcommandOptions Mixin to handle subcommands that take a basedir
     argument"""

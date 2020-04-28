@@ -98,7 +98,7 @@ Features
 
 * ``ForceScheduler`` has been updated:
 
-  * support for multiple :ref:`codebases<Attr-Codebase>` via the ``codebases`` parameter
+  * support for multiple :ref:`codebases<Change-Attr-Codebase>` via the ``codebases`` parameter
   * ``NestedParameter`` to provide a logical grouping of parameters.
   * ``CodebaseParameter`` to set the branch/revision/repository/project for a codebase
   * new HTML/CSS customization points. Each parameter is contained in a ``row`` with multiple
@@ -125,7 +125,7 @@ Deprecations, Removals, and Non-Compatible Changes
 * Buildbot master requires ``python-dateutil`` version 1.5 to support the
   Nightly scheduler.
 
-* ``ForceScheduler`` has been updated to support multiple :ref:`codebases<Attr-Codebase>`.
+* ``ForceScheduler`` has been updated to support multiple :ref:`codebases<Change-Attr-Codebase>`.
   The branch/revision/repository/project are deprecated; if you have customized these
   values, simply provide them as ``codebases=[CodebaseParameter(name='', ...)]``.
 
@@ -146,7 +146,7 @@ Deprecations, Removals, and Non-Compatible Changes
 
 * The parameters to the callable version of ``build.workdir`` have changed.
   Instead of a single sourcestamp, a list of sourcestamps is passed. Each
-  sourcestamp in the list has a different :ref:`codebase<Attr-Codebase>`
+  sourcestamp in the list has a different :ref:`codebase<Change-Attr-Codebase>`
 
 * The undocumented renderable ``_ComputeRepositoryURL`` is no longer imported to
   :py:mod:`buildbot.steps.source`. It is still available at
@@ -176,7 +176,8 @@ Deprecations, Removals, and Non-Compatible Changes
 
     from buildbot.process.properties import Interpolate
     from buildbot.steps.source.svn import SVN
-    factory.append(SVN(repourl=Interpolate("svn://svn.example.org/svn/%(src::branch)s/project")))
+    factory.append(SVN(repourl=Interpolate(
+        "svn://svn.example.org/svn/%(src::branch)s/project")))
 
   and ::
 
@@ -187,7 +188,8 @@ Deprecations, Removals, and Non-Compatible Changes
 
     from buildbot.process.properties import Interpolate
     from buildbot.steps.source.svn import SVN
-    factory.append(SVN(repourl=Interpolate("svn://svn.example.org/svn/%(src::branch:-branches/test)s")))
+    factory.append(SVN(repourl=Interpolate(
+        "svn://svn.example.org/svn/%(src::branch:-branches/test)s")))
 
 * The ``P4Sync`` step, deprecated since 0.8.5, has been removed.  The ``P4`` step remains.
 

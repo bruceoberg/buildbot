@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import os
 
@@ -31,11 +29,14 @@ from buildbot.test.fake.remotecommand import Expect
 from buildbot.test.fake.remotecommand import ExpectRemoteRef
 from buildbot.test.fake.remotecommand import ExpectShell
 from buildbot.test.util import sourcesteps
+from buildbot.test.util.misc import TestReactorMixin
 
 
-class TestBzr(sourcesteps.SourceStepMixin, unittest.TestCase):
+class TestBzr(sourcesteps.SourceStepMixin, TestReactorMixin,
+              unittest.TestCase):
 
     def setUp(self):
+        self.setUpTestReactor()
         return self.setUpSourceStep()
 
     def tearDown(self):
@@ -251,13 +252,13 @@ class TestBzr(sourcesteps.SourceStepMixin, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         command=['bzr', 'update'])
             + 0,
-            Expect('downloadFile', dict(blocksize=16384, maxsize=None,
+            Expect('downloadFile', dict(blocksize=32768, maxsize=None,
                                         reader=ExpectRemoteRef(
                                             remotetransfer.FileReader),
                                         workerdest='.buildbot-diff', workdir='wkdir',
                                         mode=None))
             + 0,
-            Expect('downloadFile', dict(blocksize=16384, maxsize=None,
+            Expect('downloadFile', dict(blocksize=32768, maxsize=None,
                                         reader=ExpectRemoteRef(
                                             remotetransfer.FileReader),
                                         workerdest='.buildbot-patched', workdir='wkdir',
@@ -301,13 +302,13 @@ class TestBzr(sourcesteps.SourceStepMixin, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         command=['bzr', 'update'])
             + 0,
-            Expect('downloadFile', dict(blocksize=16384, maxsize=None,
+            Expect('downloadFile', dict(blocksize=32768, maxsize=None,
                                         reader=ExpectRemoteRef(
                                             remotetransfer.FileReader),
                                         slavedest='.buildbot-diff', workdir='wkdir',
                                         mode=None))
             + 0,
-            Expect('downloadFile', dict(blocksize=16384, maxsize=None,
+            Expect('downloadFile', dict(blocksize=32768, maxsize=None,
                                         reader=ExpectRemoteRef(
                                             remotetransfer.FileReader),
                                         slavedest='.buildbot-patched', workdir='wkdir',
@@ -507,7 +508,8 @@ class TestBzr(sourcesteps.SourceStepMixin, unittest.TestCase):
             + 0,
             ExpectShell(workdir='wkdir',
                         command=['bzr', 'checkout',
-                                 os.path.join('http://bzr.squid-cache.org/bzr/squid3', 'trunk'), '.'])
+                                 os.path.join('http://bzr.squid-cache.org/bzr/squid3', 'trunk'),
+                                 '.'])
             + 0,
             ExpectShell(workdir='wkdir',
                         command=['bzr', 'version-info', '--custom', "--template='{revno}"])
@@ -536,7 +538,8 @@ class TestBzr(sourcesteps.SourceStepMixin, unittest.TestCase):
             + 0,
             ExpectShell(workdir='wkdir',
                         command=['bzr', 'checkout',
-                                 os.path.join('http://bzr.squid-cache.org/bzr/squid3', 'branches/SQUID_3_0'), '.'])
+                                 os.path.join('http://bzr.squid-cache.org/bzr/squid3',
+                                 'branches/SQUID_3_0'), '.'])
             + 0,
             ExpectShell(workdir='wkdir',
                         command=['bzr', 'version-info', '--custom', "--template='{revno}"])

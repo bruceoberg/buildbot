@@ -13,55 +13,34 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 from twisted.trial import unittest
 
+from buildbot.interfaces import LatentWorkerSubstantiatiationCancelled
 from buildbot.process.properties import Properties
+from buildbot.test.fake import fakebuild
 from buildbot.test.fake import fakemaster
 from buildbot.test.fake import httpclientservice as fakehttpclientservice
-from buildbot.test.fake.reactor import TestReactor
-from buildbot.util.eventual import _setReactor
+from buildbot.test.fake.fakeprotocol import FakeTrivialConnection as FakeBot
+from buildbot.test.util.misc import TestReactorMixin
 from buildbot.worker.marathon import MarathonLatentWorker
 
 
-class FakeBuild(object):
-    def render(self, r):
-        if isinstance(r, str):
-            return "rendered:" + r
-        return r
-
-
-class FakeBot(object):
-    info = {}
-
-    def notifyOnDisconnect(self, n):
-        self.n = n
-
-    def remoteSetBuilderList(self, builders):
-        return defer.succeed(None)
-
-    def loseConnection(self):
-        self.n()
-
-
-class TestMarathonLatentWorker(unittest.SynchronousTestCase):
+class TestMarathonLatentWorker(unittest.TestCase, TestReactorMixin):
     def setUp(self):
-        self.reactor = TestReactor()
-        _setReactor(self.reactor)
+        self.setUpTestReactor()
         self.build = Properties(
             image="busybox:latest", builder="docker_worker")
         self.worker = None
 
     def tearDown(self):
         if self.worker is not None:
-            class FakeResult(object):
+            class FakeResult:
                 code = 200
             self._http.delete = lambda _: defer.succeed(FakeResult())
             self.worker.master.stopService()
-        _setReactor(None)
+        self.flushLoggedErrors(LatentWorkerSubstantiatiationCancelled)
 
     def test_constructor_normal(self):
         worker = MarathonLatentWorker('bot', 'tcp://marathon.local', 'foo',
@@ -69,29 +48,30 @@ class TestMarathonLatentWorker(unittest.SynchronousTestCase):
         # class instantiation configures nothing
         self.assertEqual(worker._http, None)
 
+    @defer.inlineCallbacks
     def makeWorker(self, **kwargs):
         kwargs.setdefault('image', 'debian:wheezy')
         worker = MarathonLatentWorker('bot', 'tcp://marathon.local', **kwargs)
         self.worker = worker
-        master = fakemaster.make_master(testcase=self, wantData=True)
-        self._http = self.successResultOf(
-            fakehttpclientservice.HTTPClientService.getFakeService(
-                master, self, 'tcp://marathon.local', auth=kwargs.get(
-                    'auth')))
-        worker.setServiceParent(master)
+        master = fakemaster.make_master(self, wantData=True)
+        self._http = yield fakehttpclientservice.HTTPClientService.getFakeService(
+                master, self, 'tcp://marathon.local', auth=kwargs.get('auth'))
+        yield worker.setServiceParent(master)
         worker.reactor = self.reactor
-        self.successResultOf(master.startService())
+        yield master.startService()
         worker.masterhash = "masterhash"
         return worker
 
+    @defer.inlineCallbacks
     def test_start_service(self):
-        worker = self.worker = self.makeWorker()
+        worker = self.worker = yield self.makeWorker()
         # http is lazily created on worker substantiation
         self.assertNotEqual(worker._http, None)
 
+    @defer.inlineCallbacks
     def test_start_worker(self):
         # http://mesosphere.github.io/marathon/docs/rest-api.html#post-v2-apps
-        worker = self.makeWorker()
+        worker = yield self.makeWorker()
         worker.password = "pass"
         worker.masterFQDN = "master"
         self._http.expect(
@@ -109,26 +89,27 @@ class TestMarathonLatentWorker(unittest.SynchronousTestCase):
                     },
                     'type': 'DOCKER'
                 },
-                'id': u'buildbot-worker/buildbot-bot-masterhash',
+                'id': 'buildbot-worker/buildbot-bot-masterhash',
                 'env': {
                     'BUILDMASTER': "master",
                     'BUILDMASTER_PORT': '1234',
-                    'WORKERNAME': u'bot',
+                    'WORKERNAME': 'bot',
                     'WORKERPASS': "pass"
                 }
             },
             code=201,
             content_json={'Id': 'id'})
-        d = worker.substantiate(None, FakeBuild())
+        d = worker.substantiate(None, fakebuild.FakeBuildForRendering())
         # we simulate a connection
         worker.attached(FakeBot())
-        self.successResultOf(d)
+        yield d
 
         self.assertEqual(worker.instance, {'Id': 'id'})
         # teardown makes sure all containers are cleaned up
 
+    @defer.inlineCallbacks
     def test_start_worker_but_no_connection_and_shutdown(self):
-        worker = self.makeWorker()
+        worker = yield self.makeWorker()
         worker.password = "pass"
         worker.masterFQDN = "master"
         self._http.expect(
@@ -146,23 +127,24 @@ class TestMarathonLatentWorker(unittest.SynchronousTestCase):
                     },
                     'type': 'DOCKER'
                 },
-                'id': u'buildbot-worker/buildbot-bot-masterhash',
+                'id': 'buildbot-worker/buildbot-bot-masterhash',
                 'env': {
                     'BUILDMASTER': "master",
                     'BUILDMASTER_PORT': '1234',
-                    'WORKERNAME': u'bot',
+                    'WORKERNAME': 'bot',
                     'WORKERPASS': "pass"
                 }
             },
             code=201,
             content_json={'Id': 'id'})
 
-        worker.substantiate(None, FakeBuild())
+        worker.substantiate(None, fakebuild.FakeBuildForRendering())
         self.assertEqual(worker.instance, {'Id': 'id'})
         # teardown makes sure all containers are cleaned up
 
+    @defer.inlineCallbacks
     def test_start_worker_but_error(self):
-        worker = self.makeWorker()
+        worker = yield self.makeWorker()
         self._http.expect(
             method='delete',
             ep='/v2/apps/buildbot-worker/buildbot-bot-masterhash')
@@ -178,11 +160,11 @@ class TestMarathonLatentWorker(unittest.SynchronousTestCase):
                     },
                     'type': 'DOCKER'
                 },
-                'id': u'buildbot-worker/buildbot-bot-masterhash',
+                'id': 'buildbot-worker/buildbot-bot-masterhash',
                 'env': {
                     'BUILDMASTER': "master",
                     'BUILDMASTER_PORT': '1234',
-                    'WORKERNAME': u'bot',
+                    'WORKERNAME': 'bot',
                     'WORKERPASS': "pass"
                 }
             },
@@ -191,15 +173,17 @@ class TestMarathonLatentWorker(unittest.SynchronousTestCase):
         self._http.expect(
             method='delete',
             ep='/v2/apps/buildbot-worker/buildbot-bot-masterhash')
-        d = worker.substantiate(None, FakeBuild())
+        d = worker.substantiate(None, fakebuild.FakeBuildForRendering())
         self.reactor.advance(.1)
-        self.failureResultOf(d)
+        with self.assertRaises(Exception):
+            yield d
         self.assertEqual(worker.instance, None)
         # teardown makes sure all containers are cleaned up
 
+    @defer.inlineCallbacks
     def test_start_worker_with_params(self):
         # http://mesosphere.github.io/marathon/docs/rest-api.html#post-v2-apps
-        worker = self.makeWorker(marathon_extra_config={
+        worker = yield self.makeWorker(marathon_extra_config={
             'container': {
                 'docker': {
                     'network': None
@@ -226,21 +210,21 @@ class TestMarathonLatentWorker(unittest.SynchronousTestCase):
                     },
                     'type': 'DOCKER'
                 },
-                'id': u'buildbot-worker/buildbot-bot-masterhash',
+                'id': 'buildbot-worker/buildbot-bot-masterhash',
                 'env': {
                     'BUILDMASTER': "master",
                     'BUILDMASTER_PORT': '1234',
-                    'WORKERNAME': u'bot',
+                    'WORKERNAME': 'bot',
                     'WORKERPASS': "pass",
                     'PARAMETER': 'foo'
                 }
             },
             code=201,
             content_json={'Id': 'id'})
-        d = worker.substantiate(None, FakeBuild())
+        d = worker.substantiate(None, fakebuild.FakeBuildForRendering())
         # we simulate a connection
         worker.attached(FakeBot())
-        self.successResultOf(d)
+        yield d
 
         self.assertEqual(worker.instance, {'Id': 'id'})
         # teardown makes sure all containers are cleaned up

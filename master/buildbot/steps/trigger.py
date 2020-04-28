@@ -13,11 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-from future.utils import itervalues
-
 from twisted.internet import defer
 from twisted.python import log
 
@@ -103,7 +98,7 @@ class Trigger(BuildStep):
         self.brids = []
         self.triggeredNames = None
         self.waitForFinishDeferred = None
-        BuildStep.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
     def interrupt(self, reason):
         # We cancel the buildrequests, as the data api handles
@@ -195,17 +190,18 @@ class Trigger(BuildStep):
             if isinstance(results, tuple):
                 results, brids_dict = results
 
+                # brids_dict.values() represents the list of brids kicked by a certain scheduler.
+                # We want to ignore the result of ANY brid that was kicked off
+                # by an UNimportant scheduler.
+                if set(unimportant_brids).issuperset(set(brids_dict.values())):
+                    continue
+
             if not was_cb:
                 yield self.addLogWithFailure(results)
                 results = EXCEPTION
 
-            # brids_dict.values() represents the list of brids kicked by a certain scheduler.
-            # We want to ignore the result of ANY brid that was kicked off
-            # by an UNimportant scheduler.
-            if set(unimportant_brids).issuperset(set(brids_dict.values())):
-                continue
             overall_results = worst_status(overall_results, results)
-        defer.returnValue(overall_results)
+        return overall_results
 
     @defer.inlineCallbacks
     def addBuildUrls(self, rclist):
@@ -215,7 +211,7 @@ class Trigger(BuildStep):
                 results, brids = results
             builderNames = {}
             if was_cb:  # errors were already logged in worstStatus
-                for builderid, br in iteritems(brids):
+                for builderid, br in brids.items():
                     builds = yield self.master.db.builds.getBuilds(buildrequestid=br)
                     for build in builds:
                         builderid = build['builderid']
@@ -226,8 +222,9 @@ class Trigger(BuildStep):
                             builderNames[builderid] = builderDict["name"]
                         num = build['number']
                         url = self.master.status.getURLForBuild(builderid, num)
-                        yield self.addURL("%s: %s #%d" % (statusToString(build["results"]),
-                                                          builderNames[builderid], num), url)
+                        yield self.addURL("{}: {} #{}".format(statusToString(build["results"]),
+                                                              builderNames[builderid], num),
+                                          url)
 
     @defer.inlineCallbacks
     def run(self):
@@ -242,15 +239,14 @@ class Trigger(BuildStep):
             if isinstance(element, dict):
                 schedulers_and_props_list = schedulers_and_props
                 break
-            else:
-                # Old-style back compatibility: Convert tuple to dict and make
-                # it important
-                d = {
-                    'sched_name': element[0],
-                    'props_to_set': element[1],
-                    'unimportant': False
-                }
-                schedulers_and_props_list.append(d)
+            # Old-style back compatibility: Convert tuple to dict and make
+            # it important
+            d = {
+                'sched_name': element[0],
+                'props_to_set': element[1],
+                'unimportant': False
+            }
+            schedulers_and_props_list.append(d)
 
         # post process the schedulernames, and raw properties
         # we do this out of the loop, as this can result in errors
@@ -285,17 +281,17 @@ class Trigger(BuildStep):
                 yield self.addLogWithException(e)
                 results = EXCEPTION
             if unimportant:
-                unimportant_brids.extend(itervalues(brids))
-            self.brids.extend(itervalues(brids))
+                unimportant_brids.extend(brids.values())
+            self.brids.extend(brids.values())
             for brid in brids.values():
                 # put the url to the brids, so that we can have the status from
                 # the beginning
                 url = self.master.status.getURLForBuildrequest(brid)
-                yield self.addURL("%s #%d" % (sch.name, brid), url)
+                yield self.addURL("{} #{}".format(sch.name, brid), url)
             dl.append(resultsDeferred)
             triggeredNames.append(sch.name)
             if self.ended:
-                defer.returnValue(CANCELLED)
+                return CANCELLED
         self.triggeredNames = triggeredNames
 
         if self.waitForFinish:
@@ -306,7 +302,7 @@ class Trigger(BuildStep):
                 pass
             # we were interrupted, don't bother update status
             if self.ended:
-                defer.returnValue(CANCELLED)
+                return CANCELLED
             yield self.addBuildUrls(rclist)
             results = yield self.worstStatus(results, rclist, unimportant_brids)
         else:
@@ -315,14 +311,14 @@ class Trigger(BuildStep):
                 d.addErrback(log.err,
                              '(ignored) while invoking Triggerable schedulers:')
 
-        defer.returnValue(results)
+        return results
 
     def getResultSummary(self):
         if self.ended:
-            return {u'step': u'interrupted'}
-        return {u'step': self.getCurrentSummary()[u'step']} if self.triggeredNames else {}
+            return {'step': 'interrupted'}
+        return {'step': self.getCurrentSummary()['step']} if self.triggeredNames else {}
 
     def getCurrentSummary(self):
         if not self.triggeredNames:
-            return {u'step': u'running'}
-        return {u'step': u'triggered %s' % (u', '.join(self.triggeredNames))}
+            return {'step': 'running'}
+        return {'step': 'triggered {}'.format(', '.join(self.triggeredNames))}

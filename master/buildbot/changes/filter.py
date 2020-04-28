@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-
 import re
 
 from buildbot.util import ComparableMixin
@@ -83,7 +79,7 @@ class ChangeFilter(ComparableMixin):
     def filter_change(self, change):
         if self.filter_fn is not None and not self.filter_fn(change):
             return False
-        for chg_attr, (filt_list, filt_re, filt_fn) in iteritems(self.checks):
+        for chg_attr, (filt_list, filt_re, filt_fn) in self.checks.items():
             if chg_attr.startswith("prop:"):
                 chg_val = change.properties.getProperty(
                     chg_attr.split(":", 1)[1], '')
@@ -101,15 +97,15 @@ class ChangeFilter(ComparableMixin):
         checks = []
         for chg_attr, (filt_list, filt_re, filt_fn) in sorted(self.checks.items()):
             if filt_list is not None and len(filt_list) == 1:
-                checks.append('%s == %s' % (chg_attr, filt_list[0]))
+                checks.append('{} == {}'.format(chg_attr, filt_list[0]))
             elif filt_list is not None:
-                checks.append('%s in %r' % (chg_attr, filt_list))
+                checks.append('{} in {}'.format(chg_attr, repr(filt_list)))
             if filt_re is not None:
-                checks.append('%s ~/%s/' % (chg_attr, filt_re))
+                checks.append('{} ~/{}/'.format(chg_attr, filt_re))
             if filt_fn is not None:
-                checks.append('%s(%s)' % (filt_fn.__name__, chg_attr))
+                checks.append('{}({})'.format(filt_fn.__name__, chg_attr))
 
-        return "<%s on %s>" % (self.__class__.__name__, ' and '.join(checks))
+        return "<{} on {}>".format(self.__class__.__name__, ' and '.join(checks))
 
     @staticmethod
     def fromSchedulerConstructorArgs(change_filter=None,

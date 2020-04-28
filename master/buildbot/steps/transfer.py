@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import json
 import os
@@ -34,14 +32,12 @@ from buildbot.process.buildstep import BuildStep
 from buildbot.steps.worker import CompositeStepMixin
 from buildbot.util import flatten
 from buildbot.util.eventual import eventually
-from buildbot.worker_transition import WorkerAPICompatMixin
-from buildbot.worker_transition import reportDeprecatedWorkerNameUsage
 
 
 def makeStatusRemoteCommand(step, remote_command, args):
     self = remotecommand.RemoteCommand(
         remote_command, args, decodeRC={None: SUCCESS, 0: SUCCESS})
-    self.useLogDelayed('stdio', lambda arg: step.step_status.addLog('stdio'), True)
+    self.useLog(step.stdio_log)
     return self
 
 
@@ -58,7 +54,7 @@ class _TransferBuildStep(BuildStep):
     flunkOnFailure = True
 
     def __init__(self, workdir=None, **buildstep_kwargs):
-        BuildStep.__init__(self, **buildstep_kwargs)
+        super().__init__(**buildstep_kwargs)
         self.workdir = workdir
 
     def runTransferCommand(self, cmd, writer=None):
@@ -86,35 +82,31 @@ class _TransferBuildStep(BuildStep):
         if self.cmd:
             d = self.cmd.interrupt(reason)
             return d
+        return None
 
 
-class FileUpload(_TransferBuildStep, WorkerAPICompatMixin):
+class FileUpload(_TransferBuildStep):
 
     name = 'upload'
 
-    renderables = ['workersrc', 'masterdest', 'url']
+    renderables = [
+        'masterdest',
+        'url',
+        'urlText',
+        'workersrc',
+    ]
 
     def __init__(self, workersrc=None, masterdest=None,
-                 workdir=None, maxsize=None, blocksize=16 * 1024, mode=None,
+                 workdir=None, maxsize=None, blocksize=256 * 1024, mode=None,
                  keepstamp=False, url=None, urlText=None,
-                 slavesrc=None,  # deprecated, use `workersrc` instead
                  **buildstep_kwargs):
-        # Deprecated API support.
-        if slavesrc is not None:
-            reportDeprecatedWorkerNameUsage(
-                "'slavesrc' keyword argument is deprecated, "
-                "use 'workersrc' instead")
-            assert workersrc is None
-            workersrc = slavesrc
-
         # Emulate that first two arguments are positional.
         if workersrc is None or masterdest is None:
             raise TypeError("__init__() takes at least 3 arguments")
 
-        _TransferBuildStep.__init__(self, workdir=workdir, **buildstep_kwargs)
+        super().__init__(workdir=workdir, **buildstep_kwargs)
 
         self.workersrc = workersrc
-        self._registerOldWorkerAttr("workersrc")
         self.masterdest = masterdest
         self.maxsize = maxsize
         self.blocksize = blocksize
@@ -130,10 +122,11 @@ class FileUpload(_TransferBuildStep, WorkerAPICompatMixin):
         log.msg("File '{}' upload finished with results {}".format(
             os.path.basename(self.workersrc), str(results)))
         self.step_status.setText(self.descriptionDone)
-        _TransferBuildStep.finished(self, results)
+        super().finished(results)
 
     def start(self):
         self.checkWorkerHasCommand("uploadFile")
+        self.stdio_log = self.addLog("stdio")
 
         source = self.workersrc
         masterdest = self.masterdest
@@ -146,7 +139,7 @@ class FileUpload(_TransferBuildStep, WorkerAPICompatMixin):
                 % (source, masterdest))
 
         if self.description is None:
-            self.description = ['uploading %s' % (os.path.basename(source))]
+            self.description = ['uploading {}'.format(os.path.basename(source))]
 
         if self.descriptionDone is None:
             self.descriptionDone = self.description
@@ -166,8 +159,8 @@ class FileUpload(_TransferBuildStep, WorkerAPICompatMixin):
             masterdest, self.maxsize, self.mode)
 
         if self.keepstamp and self.workerVersionIsOlderThan("uploadFile", "2.13"):
-            m = ("This worker (%s) does not support preserving timestamps. "
-                 "Please upgrade the worker." % self.build.workername)
+            m = (("This worker ({}) does not support preserving timestamps. "
+                  "Please upgrade the worker.").format(self.build.workername))
             raise WorkerTooOldError(m)
 
         # default arguments
@@ -189,7 +182,7 @@ class FileUpload(_TransferBuildStep, WorkerAPICompatMixin):
         d.addCallback(self.finished).addErrback(self.failed)
 
 
-class DirectoryUpload(_TransferBuildStep, WorkerAPICompatMixin):
+class DirectoryUpload(_TransferBuildStep):
 
     name = 'upload'
 
@@ -198,25 +191,15 @@ class DirectoryUpload(_TransferBuildStep, WorkerAPICompatMixin):
     def __init__(self, workersrc=None, masterdest=None,
                  workdir=None, maxsize=None, blocksize=16 * 1024,
                  compress=None, url=None, urlText=None,
-                 slavesrc=None,  # deprecated, use `workersrc` instead
                  **buildstep_kwargs
                  ):
-        # Deprecated API support.
-        if slavesrc is not None:
-            reportDeprecatedWorkerNameUsage(
-                "'slavesrc' keyword argument is deprecated, "
-                "use 'workersrc' instead")
-            assert workersrc is None
-            workersrc = slavesrc
-
         # Emulate that first two arguments are positional.
         if workersrc is None or masterdest is None:
             raise TypeError("__init__() takes at least 3 arguments")
 
-        _TransferBuildStep.__init__(self, workdir=workdir, **buildstep_kwargs)
+        super().__init__(workdir=workdir, **buildstep_kwargs)
 
         self.workersrc = workersrc
-        self._registerOldWorkerAttr("workersrc")
         self.masterdest = masterdest
         self.maxsize = maxsize
         self.blocksize = blocksize
@@ -229,6 +212,7 @@ class DirectoryUpload(_TransferBuildStep, WorkerAPICompatMixin):
 
     def start(self):
         self.checkWorkerHasCommand("uploadDirectory")
+        self.stdio_log = self.addLog("stdio")
 
         source = self.workersrc
         masterdest = self.masterdest
@@ -237,10 +221,10 @@ class DirectoryUpload(_TransferBuildStep, WorkerAPICompatMixin):
         # properly. TODO: maybe pass the master's basedir all the way down
         # into the BuildStep so we can do this better.
         masterdest = os.path.expanduser(masterdest)
-        log.msg("DirectoryUpload started, from worker %r to master %r"
-                % (source, masterdest))
+        log.msg("DirectoryUpload started, from worker {} to master {}".format(repr(source),
+                                                                              repr(masterdest)))
 
-        self.descriptionDone = "uploading %s" % os.path.basename(source)
+        self.descriptionDone = "uploading {}".format(os.path.basename(source))
         if self.url is not None:
             urlText = self.urlText
 
@@ -272,8 +256,7 @@ class DirectoryUpload(_TransferBuildStep, WorkerAPICompatMixin):
         d.addCallback(self.finished).addErrback(self.failed)
 
 
-class MultipleFileUpload(_TransferBuildStep, WorkerAPICompatMixin,
-                         CompositeStepMixin):
+class MultipleFileUpload(_TransferBuildStep, CompositeStepMixin):
 
     name = 'upload'
     logEnviron = False
@@ -283,24 +266,15 @@ class MultipleFileUpload(_TransferBuildStep, WorkerAPICompatMixin,
     def __init__(self, workersrcs=None, masterdest=None,
                  workdir=None, maxsize=None, blocksize=16 * 1024, glob=False,
                  mode=None, compress=None, keepstamp=False, url=None,
-                 slavesrcs=None,  # deprecated, use `workersrcs` instead
                  **buildstep_kwargs):
-        # Deprecated API support.
-        if slavesrcs is not None:
-            reportDeprecatedWorkerNameUsage(
-                "'slavesrcs' keyword argument is deprecated, "
-                "use 'workersrcs' instead")
-            assert workersrcs is None
-            workersrcs = slavesrcs
 
         # Emulate that first two arguments are positional.
         if workersrcs is None or masterdest is None:
             raise TypeError("__init__() takes at least 3 arguments")
 
-        _TransferBuildStep.__init__(self, workdir=workdir, **buildstep_kwargs)
+        super().__init__(workdir=workdir, **buildstep_kwargs)
 
         self.workersrcs = workersrcs
-        self._registerOldWorkerAttr("workersrcs")
         self.masterdest = masterdest
         self.maxsize = maxsize
         self.blocksize = blocksize
@@ -356,6 +330,7 @@ class MultipleFileUpload(_TransferBuildStep, WorkerAPICompatMixin,
         cmd = makeStatusRemoteCommand(self, 'uploadDirectory', args)
         return self.runTransferCommand(cmd, dirWriter)
 
+    @defer.inlineCallbacks
     def startUpload(self, source, destdir):
         masterdest = os.path.join(destdir, os.path.basename(source))
         args = {
@@ -364,25 +339,23 @@ class MultipleFileUpload(_TransferBuildStep, WorkerAPICompatMixin,
         }
 
         cmd = makeStatusRemoteCommand(self, 'stat', args)
-        d = self.runCommand(cmd)
+        yield self.runCommand(cmd)
+        if cmd.rc != 0:
+            self.addCompleteLog('stderr',
+                                'File {} not available at worker'.format(args))
+            return FAILURE
+        s = cmd.updates['stat'][-1]
+        if stat.S_ISDIR(s[stat.ST_MODE]):
+            result = yield self.uploadDirectory(source, masterdest)
+        elif stat.S_ISREG(s[stat.ST_MODE]):
+            result = yield self.uploadFile(source, masterdest)
+        else:
+            self.addCompleteLog('stderr',
+                                '{} is neither a regular file, nor a directory'.format(source))
+            return FAILURE
 
-        @d.addCallback
-        def checkStat(_):
-            s = cmd.updates['stat'][-1]
-            if stat.S_ISDIR(s[stat.ST_MODE]):
-                return self.uploadDirectory(source, masterdest)
-            elif stat.S_ISREG(s[stat.ST_MODE]):
-                return self.uploadFile(source, masterdest)
-            return defer.fail('%r is neither a regular file, nor a directory' % source)
-
-        @d.addCallback
-        def uploadDone(result):
-            d = defer.maybeDeferred(
-                self.uploadDone, result, source, masterdest)
-            d.addCallback(lambda _: result)
-            return d
-
-        return d
+        yield self.uploadDone(result, source, masterdest)
+        return result
 
     def uploadDone(self, result, source, masterdest):
         pass
@@ -396,13 +369,14 @@ class MultipleFileUpload(_TransferBuildStep, WorkerAPICompatMixin,
         self.checkWorkerHasCommand("uploadDirectory")
         self.checkWorkerHasCommand("uploadFile")
         self.checkWorkerHasCommand("stat")
+        self.stdio_log = self.addLog("stdio")
 
         masterdest = os.path.expanduser(self.masterdest)
         sources = self.workersrcs if isinstance(self.workersrcs, list) else [self.workersrcs]
 
         if self.keepstamp and self.workerVersionIsOlderThan("uploadFile", "2.13"):
-            m = ("This worker (%s) does not support preserving timestamps. "
-                 "Please upgrade the worker." % self.build.workername)
+            m = (("This worker ({}) does not support preserving timestamps. "
+                  "Please upgrade the worker.").format(self.build.workername))
             raise WorkerTooOldError(m)
 
         if not sources:
@@ -411,30 +385,29 @@ class MultipleFileUpload(_TransferBuildStep, WorkerAPICompatMixin,
         @defer.inlineCallbacks
         def globSources(sources):
             results = yield defer.gatherResults([
-                self.runGlob(
-                    os.path.join(self.workdir, source), abandonOnFailure=False) for source in sources
+                self.runGlob(os.path.join(self.workdir, source), abandonOnFailure=False)
+                for source in sources
             ])
             results = [self.workerPathToMasterPath(p) for p in flatten(results)]
-            defer.returnValue(results)
+            return results
 
         @defer.inlineCallbacks
         def uploadSources(sources):
             if not sources:
-                defer.returnValue(SKIPPED)
+                return SKIPPED
             else:
                 for source in sources:
                     result = yield self.startUpload(source, masterdest)
                     if result == FAILURE:
-                        defer.returnValue(FAILURE)
-                defer.returnValue(SUCCESS)
+                        return FAILURE
+                return SUCCESS
 
         def logUpload(sources):
             log.msg("MultipleFileUpload started, from worker %r to master %r" %
                     (sources, masterdest))
             nsrcs = len(sources)
-            self.descriptionDone = 'uploading %d %s' % (nsrcs, 'file'
-                                                        if nsrcs == 1 else
-                                                        'files')
+            self.descriptionDone = 'uploading {} {}'.format(nsrcs,
+                                                            'file' if nsrcs == 1 else 'files')
             return sources
 
         if self.glob:
@@ -454,11 +427,8 @@ class MultipleFileUpload(_TransferBuildStep, WorkerAPICompatMixin,
 
         d.addCallback(self.finished).addErrback(self.failed)
 
-    def finished(self, result):
-        return BuildStep.finished(self, result)
 
-
-class FileDownload(_TransferBuildStep, WorkerAPICompatMixin):
+class FileDownload(_TransferBuildStep):
 
     name = 'download'
 
@@ -466,25 +436,15 @@ class FileDownload(_TransferBuildStep, WorkerAPICompatMixin):
 
     def __init__(self, mastersrc, workerdest=None,
                  workdir=None, maxsize=None, blocksize=16 * 1024, mode=None,
-                 slavedest=None,  # deprecated, use `workerdest` instead
                  **buildstep_kwargs):
-        # Deprecated API support.
-        if slavedest is not None:
-            reportDeprecatedWorkerNameUsage(
-                "'slavedest' keyword argument is deprecated, "
-                "use 'workerdest' instead")
-            assert workerdest is None
-            workerdest = slavedest
-
         # Emulate that first two arguments are positional.
         if workerdest is None:
             raise TypeError("__init__() takes at least 3 arguments")
 
-        _TransferBuildStep.__init__(self, workdir=workdir, **buildstep_kwargs)
+        super().__init__(workdir=workdir, **buildstep_kwargs)
 
         self.mastersrc = mastersrc
         self.workerdest = workerdest
-        self._registerOldWorkerAttr("workerdest")
         self.maxsize = maxsize
         self.blocksize = blocksize
         if not isinstance(mode, (int, type(None))):
@@ -494,6 +454,7 @@ class FileDownload(_TransferBuildStep, WorkerAPICompatMixin):
 
     def start(self):
         self.checkWorkerHasCommand("downloadFile")
+        self.stdio_log = self.addLog("stdio")
 
         # we are currently in the buildmaster's basedir, so any non-absolute
         # paths will be interpreted relative to that
@@ -502,8 +463,7 @@ class FileDownload(_TransferBuildStep, WorkerAPICompatMixin):
         log.msg("FileDownload started, from master %r to worker %r" %
                 (source, workerdest))
 
-        self.descriptionDone = "downloading to %s" % os.path.basename(
-            workerdest)
+        self.descriptionDone = "downloading to {}".format(os.path.basename(workerdest))
 
         # setup structures for reading the file
         try:
@@ -537,7 +497,7 @@ class FileDownload(_TransferBuildStep, WorkerAPICompatMixin):
         d.addCallback(self.finished).addErrback(self.failed)
 
 
-class StringDownload(_TransferBuildStep, WorkerAPICompatMixin):
+class StringDownload(_TransferBuildStep):
 
     name = 'string_download'
 
@@ -545,36 +505,26 @@ class StringDownload(_TransferBuildStep, WorkerAPICompatMixin):
 
     def __init__(self, s, workerdest=None,
                  workdir=None, maxsize=None, blocksize=16 * 1024, mode=None,
-                 slavedest=None,  # deprecated, use `workerdest` instead
                  **buildstep_kwargs):
-        # Deprecated API support.
-        if slavedest is not None:
-            reportDeprecatedWorkerNameUsage(
-                "'slavedest' keyword argument is deprecated, "
-                "use 'workerdest' instead")
-            assert workerdest is None
-            workerdest = slavedest
-
         # Emulate that first two arguments are positional.
         if workerdest is None:
             raise TypeError("__init__() takes at least 3 arguments")
 
-        _TransferBuildStep.__init__(self, workdir=workdir, **buildstep_kwargs)
+        super().__init__(workdir=workdir, **buildstep_kwargs)
 
         self.s = s
         self.workerdest = workerdest
-        self._registerOldWorkerAttr("workerdest")
         self.maxsize = maxsize
         self.blocksize = blocksize
         if not isinstance(mode, (int, type(None))):
-            config.error(
-                "StringDownload step's mode must be an integer or None,"
-                " got '%s'" % mode)
+            config.error("StringDownload step's mode must be an integer or None, got '{}'".format(
+                    mode))
         self.mode = mode
 
     def start(self):
         # we use 'downloadFile' remote command on the worker
         self.checkWorkerHasCommand("downloadFile")
+        self.stdio_log = self.addLog("stdio")
 
         # we are currently in the buildmaster's basedir, so any non-absolute
         # paths will be interpreted relative to that
@@ -582,8 +532,7 @@ class StringDownload(_TransferBuildStep, WorkerAPICompatMixin):
         log.msg("StringDownload started, from master to worker %r" %
                 workerdest)
 
-        self.descriptionDone = "downloading to %s" % os.path.basename(
-            workerdest)
+        self.descriptionDone = "downloading to {}".format(os.path.basename(workerdest))
 
         # setup structures for reading the file
         fileReader = remotetransfer.StringFileReader(self.s)
@@ -607,21 +556,12 @@ class StringDownload(_TransferBuildStep, WorkerAPICompatMixin):
         d.addCallback(self.finished).addErrback(self.failed)
 
 
-class JSONStringDownload(StringDownload, WorkerAPICompatMixin):
+class JSONStringDownload(StringDownload):
 
     name = "json_download"
 
     def __init__(self, o, workerdest=None,
-                 slavedest=None,  # deprecated, use `workerdest` instead
                  **buildstep_kwargs):
-                # Deprecated API support.
-        if slavedest is not None:
-            reportDeprecatedWorkerNameUsage(
-                "'slavedest' keyword argument is deprecated, "
-                "use 'workerdest' instead")
-            assert workerdest is None
-            workerdest = slavedest
-
         # Emulate that first two arguments are positional.
         if workerdest is None:
             raise TypeError("__init__() takes at least 3 arguments")
@@ -629,25 +569,15 @@ class JSONStringDownload(StringDownload, WorkerAPICompatMixin):
         if 's' in buildstep_kwargs:
             del buildstep_kwargs['s']
         s = json.dumps(o)
-        StringDownload.__init__(
-            self, s=s, workerdest=workerdest, **buildstep_kwargs)
+        super().__init__(s=s, workerdest=workerdest, **buildstep_kwargs)
 
 
-class JSONPropertiesDownload(StringDownload, WorkerAPICompatMixin):
+class JSONPropertiesDownload(StringDownload):
 
     name = "json_properties_download"
 
     def __init__(self, workerdest=None,
-                 slavedest=None,  # deprecated, use `workerdest` instead
                  **buildstep_kwargs):
-        # Deprecated API support.
-        if slavedest is not None:
-            reportDeprecatedWorkerNameUsage(
-                "'slavedest' keyword argument is deprecated, "
-                "use 'workerdest' instead")
-            assert workerdest is None
-            workerdest = slavedest
-
         # Emulate that first two arguments are positional.
         if workerdest is None:
             raise TypeError("__init__() takes at least 2 arguments")
@@ -655,8 +585,7 @@ class JSONPropertiesDownload(StringDownload, WorkerAPICompatMixin):
         self.super_class = StringDownload
         if 's' in buildstep_kwargs:
             del buildstep_kwargs['s']
-        StringDownload.__init__(
-            self, s=None, workerdest=workerdest, **buildstep_kwargs)
+        super().__init__(s=None, workerdest=workerdest, **buildstep_kwargs)
 
     def start(self):
         properties = self.build.getProperties()

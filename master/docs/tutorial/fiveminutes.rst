@@ -94,10 +94,11 @@ A step can be a shell command object, or a dedicated object that checks out the 
 
     # step 5: upload packages to central server. This needs passwordless ssh
     # from the worker to the server (set it up in advance as part of worker setup)
-    uploadpackages = steps.ShellCommand(name="upload packages",
-                                        description="upload packages",
-                                        command="scp packages/*.rpm packages/*.deb packages/*.tgz someuser@somehost:/repository",
-                                        haltOnFailure=True)
+    uploadpackages = steps.ShellCommand(
+        name="upload packages",
+        description="upload packages",
+        command="scp packages/*.rpm packages/*.deb packages/*.tgz someuser@somehost:/repository",
+        haltOnFailure=True)
 
     # create the build factory and add the steps to it
     f_simplebuild = util.BuildFactory()
@@ -109,7 +110,8 @@ A step can be a shell command object, or a dedicated object that checks out the 
 
     # finally, declare the list of builders. In this case, we only have one builder
     c['builders'] = [
-        util.BuilderConfig(name="simplebuild", workernames=['worker1', 'worker2', 'worker3'], factory=f_simplebuild)
+        util.BuilderConfig(name="simplebuild", workernames=['worker1', 'worker2', 'worker3'],
+                           factory=f_simplebuild)
     ]
 
 So our builder is called ``simplebuild`` and can run on either of ``worker1``, ``worker2`` and ``worker3``.
@@ -184,16 +186,17 @@ First we create two builders, one for each branch (see the builders paragraph ab
                                                     builderNames=["simplebuild-trunk"])
 
     # define the dynamic scheduler for the 7.2 branch
-    branch72changed = schedulers.SingleBranchScheduler(name="branch72changed",
-                                                       change_filter=util.ChangeFilter(branch='branches/7.2'),
-                                                       treeStableTimer=300,
-                                                       builderNames=["simplebuild-72"])
+    branch72changed = schedulers.SingleBranchScheduler(
+        name="branch72changed",
+        change_filter=util.ChangeFilter(branch='branches/7.2'),
+        treeStableTimer=300,
+        builderNames=["simplebuild-72"])
 
     # define the available schedulers
     c['schedulers'] = [trunkchanged, branch72changed]
 
 The syntax of the change filter is VCS-dependent (above is for SVN), but again once the idea is clear, the documentation has all the details.
-Another feature of the scheduler is that is can be told which changes, within those it's paying attention to, are important and which are not.
+Another feature of the scheduler is that it can be told which changes, within those it's paying attention to, are important and which are not.
 For example, there may be a documentation directory in the branch the scheduler is watching, but changes under that directory should not trigger a build of the binary.
 This finer filtering is implemented by means of the ``fileIsImportant`` argument to the scheduler (full details in the docs and - alas - in the sources).
 
@@ -236,17 +239,19 @@ to watch only a specific branch.
 To watch another project, you need to create another change source -- and you need to filter changes by project.
 For instance, when you add a change source watching project 'superproject' to the above example, you need to change::
 
-    trunkchanged = schedulers.SingleBranchScheduler(name="trunkchanged",
-                                                    change_filter=filter.ChangeFilter(branch=None),
-                                                    # ...
-                                                    )
+    trunkchanged = schedulers.SingleBranchScheduler(
+        name="trunkchanged",
+        change_filter=filter.ChangeFilter(branch=None),
+        # ...
+        )
 
 to e.g.::
 
-    trunkchanged = schedulers.SingleBranchScheduler(name="trunkchanged",
-                                                    change_filter=filter.ChangeFilter(project="coolproject", branch=None),
-                                                    # ...
-                                                    )
+    trunkchanged = schedulers.SingleBranchScheduler(
+        name="trunkchanged",
+        change_filter=filter.ChangeFilter(project="coolproject", branch=None),
+        # ...
+        )
 
 else coolproject will be built when there's a change in superproject.
 
@@ -277,7 +282,7 @@ One thing I've found useful is the ability to pass a domain name as the lookup a
     c['reporters'].append(notifier)
 
 The mail notifier can be customized at will by means of the ``messageFormatter`` argument, which is a class that Buildbot calls to format the body of the email, and to which it makes available lots of information about the build.
-Here all the details.
+For more details, look into the :ref:`Reporters` section of the Buildbot manual.
 
 Conclusion
 ----------

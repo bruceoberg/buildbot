@@ -13,17 +13,11 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from future.utils import iteritems
-from future.utils import itervalues
-
 import mock
 
 from twisted.internet import defer
-from twisted.internet import task
 from twisted.python import log
+from twisted.python.reflect import namedModule
 
 from buildbot import interfaces
 from buildbot.process import buildstep
@@ -34,7 +28,7 @@ from buildbot.test.fake import fakemaster
 from buildbot.test.fake import logfile
 from buildbot.test.fake import remotecommand
 from buildbot.test.fake import worker
-from buildbot.util import bytes2NativeString
+from buildbot.util import bytes2unicode
 
 
 def _dict_diff(d1, d2):
@@ -90,7 +84,7 @@ def _describe_cmd_difference(exp, command):
     return text
 
 
-class BuildStepMixin(object):
+class BuildStepMixin:
 
     """
     Support for testing build steps.  This class adds two capabilities:
@@ -109,7 +103,21 @@ class BuildStepMixin(object):
     @ivar properties: build properties (L{Properties} instance)
     """
 
-    def setUpBuildStep(self):
+    def setUpBuildStep(self, wantData=True, wantDb=False, wantMq=False):
+        """
+        @param wantData(bool): Set to True to add data API connector to master.
+            Default value: True.
+
+        @param wantDb(bool): Set to True to add database connector to master.
+            Default value: False.
+
+        @param wantMq(bool): Set to True to add mq connector to master.
+            Default value: False.
+        """
+
+        if not hasattr(self, 'reactor'):
+            raise Exception('Reactor has not yet been setup for step')
+
         # make an (admittedly global) reference to this test case so that
         # the fakes can call back to us
         remotecommand.FakeRemoteCommand.testcase = self
@@ -119,6 +127,8 @@ class BuildStepMixin(object):
             self.patch(module, 'RemoteShellCommand',
                        remotecommand.FakeRemoteShellCommand)
         self.expected_remote_commands = []
+
+        self.master = fakemaster.make_master(self, wantData=wantData, wantDb=wantDb, wantMq=wantMq)
 
     def tearDownBuildStep(self):
         # delete the reference added in setUp
@@ -134,8 +144,7 @@ class BuildStepMixin(object):
         return getWorkerCommandVersion
 
     def setupStep(self, step, worker_version=None, worker_env=None,
-                  buildFiles=None, wantDefaultWorkdir=True, wantData=True,
-                  wantDb=False, wantMq=False):
+                  buildFiles=None, wantDefaultWorkdir=True):
         """
         Set up C{step} for testing.  This begins by using C{step} as a factory
         to create a I{new} step instance, thereby testing that the factory
@@ -150,15 +159,6 @@ class BuildStepMixin(object):
             commands.
 
         @param worker_env: environment from the worker at worker startup
-
-        @param wantData(bool): Set to True to add data API connector to master.
-            Default value: True.
-
-        @param wantDb(bool): Set to True to add database connector to master.
-            Default value: False.
-
-        @param wantMq(bool): Set to True to add mq connector to master.
-            Default value: False.
         """
         if worker_version is None:
             worker_version = {
@@ -174,12 +174,6 @@ class BuildStepMixin(object):
         factory = interfaces.IBuildStepFactory(step)
 
         step = self.step = factory.buildStep()
-        self.master = fakemaster.make_master(wantData=wantData, wantDb=wantDb,
-                                             wantMq=wantMq, testcase=self)
-
-        # mock out the reactor for updateSummary's debouncing
-        self.debounceClock = task.Clock()
-        self.master.reactor = self.debounceClock
 
         # set defaults
         if wantDefaultWorkdir:
@@ -224,7 +218,7 @@ class BuildStepMixin(object):
 
         def addHTMLLog(name, html):
             _log = logfile.FakeLogFile(name, step)
-            html = bytes2NativeString(html)
+            html = bytes2unicode(html)
             _log.addStdout(html)
             return defer.succeed(None)
         step.addHTMLLog = addHTMLLog
@@ -310,6 +304,7 @@ class BuildStepMixin(object):
         self.exp_exception = exception_class
         self.expectOutcome(EXCEPTION)
 
+    @defer.inlineCallbacks
     def runStep(self):
         """
         Run the step set up with L{setupStep}, and check the results.
@@ -320,64 +315,58 @@ class BuildStepMixin(object):
 
         self.conn = mock.Mock(name="WorkerForBuilder(connection)")
         self.step.setupProgress()
-        d = self.step.startStep(self.conn)
+        result = yield self.step.startStep(self.conn)
 
-        @d.addCallback
-        def check(result):
-            # finish up the debounced updateSummary before checking
-            self.debounceClock.advance(1)
-            if self.expected_remote_commands:
-                log.msg("un-executed remote commands:")
-                for rc in self.expected_remote_commands:
-                    log.msg(repr(rc))
-                raise AssertionError("un-executed remote commands; see logs")
+        # finish up the debounced updateSummary before checking
+        self.reactor.advance(1)
+        if self.expected_remote_commands:
+            log.msg("un-executed remote commands:")
+            for rc in self.expected_remote_commands:
+                log.msg(repr(rc))
+            raise AssertionError("un-executed remote commands; see logs")
 
-            # in case of unexpected result, display logs in stdout for
-            # debugging failing tests
-            if result != self.exp_result:
-                log.msg("unexpected result from step; dumping logs")
-                for l in itervalues(self.step.logs):
-                    if l.stdout:
-                        log.msg("{0} stdout:\n{1}".format(l.name, l.stdout))
-                    if l.stderr:
-                        log.msg("{0} stderr:\n{1}".format(l.name, l.stderr))
-                raise AssertionError("unexpected result; see logs")
+        # in case of unexpected result, display logs in stdout for
+        # debugging failing tests
+        if result != self.exp_result:
+            log.msg("unexpected result from step; dumping logs")
+            for l in self.step.logs.values():
+                if l.stdout:
+                    log.msg("{0} stdout:\n{1}".format(l.name, l.stdout))
+                if l.stderr:
+                    log.msg("{0} stderr:\n{1}".format(l.name, l.stderr))
+            raise AssertionError("unexpected result; see logs")
 
-            if self.exp_state_string:
-                stepStateString = self.master.data.updates.stepStateString
-                stepids = list(stepStateString)
-                assert stepids, "no step state strings were set"
-                self.assertEqual(
+        if self.exp_state_string:
+            stepStateString = self.master.data.updates.stepStateString
+            stepids = list(stepStateString)
+            assert stepids, "no step state strings were set"
+            self.assertEqual(
+                self.exp_state_string,
+                stepStateString[stepids[0]],
+                "expected state_string {0!r}, got {1!r}".format(
                     self.exp_state_string,
-                    stepStateString[stepids[0]],
-                    "expected state_string {0!r}, got {1!r}".format(
-                        self.exp_state_string,
-                        stepStateString[stepids[0]]))
-            for pn, (pv, ps) in iteritems(self.exp_properties):
-                self.assertTrue(self.properties.hasProperty(pn),
-                                "missing property '%s'" % pn)
-                self.assertEqual(self.properties.getProperty(pn),
-                                 pv, "property '%s'" % pn)
-                if ps is not None:
-                    self.assertEqual(
-                        self.properties.getPropertySource(pn), ps,
-                        "property {0!r} source has source {1!r}".format(
-                            pn, self.properties.getPropertySource(pn)))
-            for pn in self.exp_missing_properties:
-                self.assertFalse(self.properties.hasProperty(pn),
-                                 "unexpected property '%s'" % pn)
-            for l, exp in iteritems(self.exp_logfiles):
-                got = self.step.logs[l].stdout
-                if got != exp:
-                    log.msg("Unexpected log output:\n" + got)
-                    raise AssertionError("Unexpected log output; see logs")
-            if self.exp_exception:
+                    stepStateString[stepids[0]]))
+        for pn, (pv, ps) in self.exp_properties.items():
+            self.assertTrue(self.properties.hasProperty(pn), "missing property '{}'".format(pn))
+            self.assertEqual(self.properties.getProperty(pn), pv, "property '{}'".format(pn))
+            if ps is not None:
                 self.assertEqual(
-                    len(self.flushLoggedErrors(self.exp_exception)), 1)
+                    self.properties.getPropertySource(pn), ps,
+                    "property {0!r} source has source {1!r}".format(
+                        pn, self.properties.getPropertySource(pn)))
+        for pn in self.exp_missing_properties:
+            self.assertFalse(self.properties.hasProperty(pn), "unexpected property '{}'".format(pn))
+        for l, exp in self.exp_logfiles.items():
+            got = self.step.logs[l].stdout
+            if got != exp:
+                log.msg("Unexpected log output:\n" + got)
+                raise AssertionError("Unexpected log output; see logs")
+        if self.exp_exception:
+            self.assertEqual(
+                len(self.flushLoggedErrors(self.exp_exception)), 1)
 
-            # XXX TODO: hidden
-            # self.step_status.setHidden.assert_called_once_with(self.exp_hidden)
-        return d
+        # XXX TODO: hidden
+        # self.step_status.setHidden.assert_called_once_with(self.exp_hidden)
 
     # callbacks from the running step
 
@@ -400,8 +389,7 @@ class BuildStepMixin(object):
         if exp.shouldAssertCommandEqualExpectation():
             # handle any incomparable args
             for arg in exp.incomparable_args:
-                self.assertTrue(arg in got[1],
-                                "incomparable arg '%s' not received" % (arg,))
+                self.assertTrue(arg in got[1], "incomparable arg '{}' not received".format(arg))
                 del got[1][arg]
 
             # first check any ExpectedRemoteReference instances
@@ -439,4 +427,13 @@ class BuildStepMixin(object):
         finally:
             if not exp.shouldKeepMatchingAfter(command):
                 self.expected_remote_commands.pop(0)
-        defer.returnValue(command)
+        return command
+
+    def changeWorkerSystem(self, system):
+        self.worker.worker_system = system
+        if system in ['nt', 'win32']:
+            self.build.path_module = namedModule('ntpath')
+            self.worker.worker_basedir = '\\wrk'
+        else:
+            self.build.path_module = namedModule('posixpath')
+            self.worker.worker_basedir = '/wrk'

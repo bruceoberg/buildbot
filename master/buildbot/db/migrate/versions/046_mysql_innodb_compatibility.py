@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import sqlalchemy as sa
 from migrate import changeset
@@ -87,7 +85,8 @@ def upgrade(migrate_engine):
     if migrate_engine.dialect.name == 'postgresql':
         # Sql alchemy migrate does not apply changes on postgresql
         def reduce_table_column_length(table, column):
-            return 'ALTER TABLE {0} ALTER COLUMN {1} TYPE character varying(255)'.format(table, column)
+            return 'ALTER TABLE {0} ALTER COLUMN {1} TYPE character varying(255)'.format(table,
+                                                                                         column)
         for table, columns in {'changes': ['author', 'branch', 'revision', 'category'],
                                'object_state': ['name'],
                                'users': ['identifier']}.items():

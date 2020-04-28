@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import base64
 import copy
 import sys
@@ -35,6 +32,7 @@ from buildbot.reporters.mail import ESMTPSenderFactory
 from buildbot.reporters.mail import MailNotifier
 from buildbot.test.fake import fakemaster
 from buildbot.test.util.config import ConfigErrorsMixin
+from buildbot.test.util.misc import TestReactorMixin
 from buildbot.test.util.notifier import NotifierTestMixin
 from buildbot.util import bytes2unicode
 from buildbot.util import ssl
@@ -43,22 +41,24 @@ py_27 = sys.version_info[0] > 2 or (sys.version_info[0] == 2
                                     and sys.version_info[1] >= 7)
 
 
-class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
+class TestMailNotifier(ConfigErrorsMixin, TestReactorMixin,
+                       unittest.TestCase, NotifierTestMixin):
 
     if not ESMTPSenderFactory:
         skip = ("twisted-mail unavailable, "
                 "see: https://twistedmatrix.com/trac/ticket/8770")
 
     def setUp(self):
-        self.master = fakemaster.make_master(testcase=self,
-                                             wantData=True, wantDb=True, wantMq=True)
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self, wantData=True, wantDb=True,
+                                             wantMq=True)
 
     @defer.inlineCallbacks
     def setupMailNotifier(self, *args, **kwargs):
         mn = MailNotifier(*args, **kwargs)
         yield mn.setServiceParent(self.master)
         yield mn.startService()
-        defer.returnValue(mn)
+        return mn
 
     @defer.inlineCallbacks
     def test_change_name(self):
@@ -70,13 +70,13 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         _, builds = yield self.setupBuildResults(SUCCESS)
         msgdict = create_msgdict(funnyChars)
         mn = yield self.setupMailNotifier('from@example.org')
-        m = yield mn.createEmail(msgdict, u'builder-name', u'project-name',
+        m = yield mn.createEmail(msgdict, 'builder-name', 'project-name',
                                  SUCCESS, builds)
 
         cte_lines = [l for l in m.as_string().split("\n")
                      if l.startswith('Content-Transfer-Encoding:')]
         self.assertEqual(cte_lines,
-                         ['Content-Transfer-Encoding: %s' % expEncoding],
+                         ['Content-Transfer-Encoding: {}'.format(expEncoding)],
                          repr(m.as_string()))
 
     def test_createEmail_message_content_transfer_encoding_7bit(self):
@@ -93,7 +93,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
             expEncoding = 'base64'
         elif input_charset.body_encoding is None:
             expEncoding = '7bit'
-        return self.do_test_createEmail_cte(u"old fashioned ascii",
+        return self.do_test_createEmail_cte("old fashioned ascii",
                                             expEncoding)
 
     def test_createEmail_message_content_transfer_encoding_8bit(self):
@@ -109,7 +109,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
             expEncoding = 'base64'
         elif input_charset.body_encoding is None:
             expEncoding = '8bit'
-        return self.do_test_createEmail_cte(u"\U0001F4A7",
+        return self.do_test_createEmail_cte("\U0001F4A7",
                                             expEncoding)
 
     @defer.inlineCallbacks
@@ -117,7 +117,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         _, builds = yield self.setupBuildResults(SUCCESS)
         msgdict = create_msgdict()
         mn = yield self.setupMailNotifier('from@example.org')
-        m = yield mn.createEmail(msgdict, u'builder-n\u00E5me', u'project-n\u00E5me',
+        m = yield mn.createEmail(msgdict, 'builder-n\u00E5me', 'project-n\u00E5me',
                                  SUCCESS, builds)
 
         try:
@@ -130,9 +130,10 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         _, builds = yield self.setupBuildResults(SUCCESS)
         builds[0]['properties']['hhh'] = ('vvv', 'fake')
         msgdict = create_msgdict()
-        mn = yield self.setupMailNotifier('from@example.org', extraHeaders=dict(hhh=properties.Property('hhh')))
+        mn = yield self.setupMailNotifier('from@example.org',
+                                          extraHeaders=dict(hhh=properties.Property('hhh')))
         # add some Unicode to detect encoding problems
-        m = yield mn.createEmail(msgdict, u'builder-n\u00E5me', u'project-n\u00E5me',
+        m = yield mn.createEmail(msgdict, 'builder-n\u00E5me', 'project-n\u00E5me',
                                  SUCCESS, builds)
 
         txt = m.as_string()
@@ -146,7 +147,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         builds[1]['builder']['name'] = 'builder2'
         msgdict = create_msgdict()
         mn = yield self.setupMailNotifier('from@example.org', extraHeaders=dict(hhh='vvv'))
-        m = yield mn.createEmail(msgdict, u'builder-n\u00E5me', u'project-n\u00E5me',
+        m = yield mn.createEmail(msgdict, 'builder-n\u00E5me', 'project-n\u00E5me',
                                  SUCCESS, builds)
 
         txt = m.as_string()
@@ -157,15 +158,15 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
     def test_createEmail_message_with_patch_and_log_containing_unicode(self):
         _, builds = yield self.setupBuildResults(SUCCESS)
         msgdict = create_msgdict()
-        patches = [{'body': u'\u00E5\u00E4\u00F6'}]
+        patches = [{'body': '\u00E5\u00E4\u00F6'}]
         logs = yield self.master.data.get(("steps", 50, 'logs'))
         for l in logs:
             l['stepname'] = "fakestep"
             l['content'] = yield self.master.data.get(("logs", l['logid'], 'contents'))
 
         mn = yield self.setupMailNotifier('from@example.org', addLogs=True)
-        m = yield mn.createEmail(msgdict, u'builder-n\u00E5me',
-                                 u'project-n\u00E5me', SUCCESS,
+        m = yield mn.createEmail(msgdict, 'builder-n\u00E5me',
+                                 'project-n\u00E5me', SUCCESS,
                                  builds, patches, logs)
 
         try:
@@ -190,7 +191,8 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         mn = yield self.setupMailNotifier('from@example.org', **mnKwargs)
 
         mn.messageFormatter = Mock(spec=mn.messageFormatter)
-        mn.messageFormatter.formatMessageForBuildResults.return_value = {"body": "body", "type": "text",
+        mn.messageFormatter.formatMessageForBuildResults.return_value = {"body": "body",
+                                                                         "type": "text",
                                                                          "subject": "subject"}
 
         mn.findInterrestedUsersEmails = Mock(
@@ -204,7 +206,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         mn.createEmail.return_value = "<email>"
         mn.sendMail = Mock(spec=mn.sendMail)
         yield mn.buildMessage("mybldr", builds, SUCCESS)
-        defer.returnValue((mn, builds))
+        return (mn, builds)
 
     @defer.inlineCallbacks
     def test_buildMessage(self):
@@ -213,9 +215,9 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         build = builds[0]
         mn.messageFormatter.formatMessageForBuildResults.assert_called_with(
             ('change',), 'mybldr', build['buildset'], build, self.master,
-            None, [u'me@foo'])
+            None, ['me@foo'])
 
-        mn.findInterrestedUsersEmails.assert_called_with([u'me@foo'])
+        mn.findInterrestedUsersEmails.assert_called_with(['me@foo'])
         mn.processRecipients.assert_called_with('<recipients>', '<email>')
         mn.sendMail.assert_called_with('<email>', '<processedrecipients>')
         self.assertEqual(mn.createEmail.call_count, 1)
@@ -226,10 +228,11 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
                                       exp_called_with=None, exp_TO=None,
                                       exp_CC=None):
         if extraRecipients is None:
-                extraRecipients = []
+            extraRecipients = []
         _, builds = yield self.setupBuildResults(SUCCESS)
 
-        mn = yield self.setupMailNotifier('from@example.org', lookup=lookup, extraRecipients=extraRecipients,
+        mn = yield self.setupMailNotifier('from@example.org', lookup=lookup,
+                                          extraRecipients=extraRecipients,
                                           sendToInterestedUsers=sendToInterestedUsers)
 
         recipients = yield mn.findInterrestedUsersEmails(['Big Bob <bob@mayhem.net>', 'narrator'])
@@ -244,19 +247,19 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
             lookup="example.org",
             exp_called_with=['Big Bob <bob@mayhem.net>',
                              'narrator@example.org'],
-            exp_TO="Big Bob <bob@mayhem.net>, "
-            "narrator@example.org")
+            exp_TO='"=?utf-8?q?Big_Bob?=" <bob@mayhem.net>, '
+            'narrator@example.org')
 
     def test_buildMessage_sendToInterestedUsers_no_lookup(self):
         return self.do_test_sendToInterestedUsers(
             exp_called_with=['Big Bob <bob@mayhem.net>'],
-            exp_TO="Big Bob <bob@mayhem.net>")
+            exp_TO='"=?utf-8?q?Big_Bob?=" <bob@mayhem.net>')
 
     def test_buildMessage_sendToInterestedUsers_extraRecipients(self):
         return self.do_test_sendToInterestedUsers(
             extraRecipients=["marla@mayhem.net"],
             exp_called_with=['Big Bob <bob@mayhem.net>', 'marla@mayhem.net'],
-            exp_TO="Big Bob <bob@mayhem.net>",
+            exp_TO='"=?utf-8?q?Big_Bob?=" <bob@mayhem.net>',
             exp_CC="marla@mayhem.net")
 
     def test_sendToInterestedUsers_False(self):
@@ -286,9 +289,8 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
                         'foo bar@example.net',
                         'Foo\nBar <foo@example.org>',  # newline in name
                         'test@example..invalid']:     # empty label (..)
-            self.assertRaises(
-                ConfigErrors, MailNotifier,
-                'foo@example.com', extraRecipients=[invalid])
+            with self.assertRaises(ConfigErrors):
+                MailNotifier('foo@example.com', extraRecipients=[invalid])
 
     @defer.inlineCallbacks
     def test_sendMail_real_name_addresses(self):
@@ -322,7 +324,8 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         mn = yield self.setupMailNotifier('from@example.org', **mnKwargs)
 
         mn.messageFormatter = Mock(spec=mn.messageFormatter)
-        mn.messageFormatter.formatMessageForBuildResults.return_value = {"body": "body", "type": "text",
+        mn.messageFormatter.formatMessageForBuildResults.return_value = {"body": "body",
+                                                                         "type": "text",
                                                                          "subject": "subject"}
 
         mn.findInterrestedUsersEmails = Mock(
@@ -336,7 +339,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         mn.createEmail.return_value.as_string = Mock(return_value="<email>")
 
         yield mn.buildMessage("mybldr", builds, SUCCESS)
-        defer.returnValue((mn, builds))
+        return (mn, builds)
 
     @defer.inlineCallbacks
     def test_sendMessageOverTcp(self):
@@ -359,7 +362,8 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
         """
         fakereactor = Mock()
         self.patch(mail, 'reactor', fakereactor)
-        mn, builds = yield self.do_test_sendMessage(smtpUser=Interpolate("u$er"), smtpPassword=Interpolate("pa$$word"))
+        mn, builds = yield self.do_test_sendMessage(smtpUser=Interpolate("u$er"),
+                                                    smtpPassword=Interpolate("pa$$word"))
 
         self.assertEqual(mn.smtpUser, "u$er")
         self.assertEqual(mn.smtpPassword, "pa$$word")
@@ -380,7 +384,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase, NotifierTestMixin):
                       0][3]), {}), fakereactor.method_calls)
 
 
-def create_msgdict(funny_chars=u'\u00E5\u00E4\u00F6'):
-    unibody = u'Unicode body with non-ascii (%s).' % funny_chars
+def create_msgdict(funny_chars='\u00E5\u00E4\u00F6'):
+    unibody = 'Unicode body with non-ascii ({}).'.format(funny_chars)
     msg_dict = dict(body=unibody, type='plain')
     return msg_dict

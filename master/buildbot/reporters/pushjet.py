@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 from twisted.python import log as twlog
@@ -93,7 +91,7 @@ class PushjetNotifier(NotifierBase):
                     logs=None, worker=None):
 
         if worker is not None and worker not in self.watchedWorkers:
-            return
+            return None
 
         msg = {'message': body}
         level = self.levels.get(LEVELS[results] if worker is None else 'worker_missing')

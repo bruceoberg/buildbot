@@ -5,10 +5,6 @@
 # Pyflakes warnings corrected
 
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from future.builtins import range
 
 import re
 from datetime import datetime
@@ -25,7 +21,7 @@ star_or_int_re = re.compile(r'^(\d+|\*)$')
 __all__ = ('croniter',)
 
 
-class croniter(object):
+class croniter:
     RANGES = (
         (0, 59),
         (0, 23),
@@ -94,8 +90,7 @@ class croniter(object):
 
                     if (not low or not high or int(low) > int(high) or
                             not only_int_re.search(str(step))):
-                        raise ValueError(
-                            "[%s] is not acceptable" % expr_format)
+                        raise ValueError("[{}] is not acceptable".format(expr_format))
 
                     for j in range(int(low), int(high) + 1):
                         if j % int(step) == 0:
@@ -114,8 +109,7 @@ class croniter(object):
 
                     if t != '*' and (int(t) < self.RANGES[i][0] or
                                      int(t) > self.RANGES[i][1]):
-                        raise ValueError(
-                            "[%s] is not acceptable, out of range" % expr_format)
+                        raise ValueError("[{}] is not acceptable, out of range".format(expr_format))
 
                     res.append(t)
 

@@ -9,7 +9,8 @@ from twisted.python.log import ILogObserver
 from buildbot_worker.bot import Worker
 
 # setup worker
-basedir = os.path.abspath(os.path.dirname(__file__))
+basedir = os.environ.get("BUILDBOT_BASEDIR",
+    os.path.abspath(os.path.dirname(__file__)))
 application = service.Application('buildbot-worker')
 
 
@@ -32,8 +33,10 @@ umask = None
 maxdelay = 300
 allow_shutdown = None
 maxretries = 10
+delete_leftover_dirs = False
 
 s = Worker(buildmaster_host, port, workername, passwd, basedir,
            keepalive, umask=umask, maxdelay=maxdelay,
-           allow_shutdown=allow_shutdown, maxRetries=maxretries)
+           allow_shutdown=allow_shutdown, maxRetries=maxretries,
+           delete_leftover_dirs=delete_leftover_dirs)
 s.setServiceParent(application)

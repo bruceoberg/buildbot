@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import os
 
@@ -32,7 +30,7 @@ from buildbot.process.results import statusToString
 from buildbot.reporters import utils
 
 
-class MessageFormatterBase(object):
+class MessageFormatterBase:
     template_filename = 'default_mail.txt'
     template_type = 'plain'
 
@@ -97,11 +95,12 @@ class MessageFormatter(MessageFormatterBase):
         if template_name is not None:
             config.warnDeprecated('0.9.1', "template_name is deprecated, use template_filename")
             template_filename = template_name
-        MessageFormatterBase.__init__(self,
-                                      template_dir=template_dir,
-                                      template_filename=template_filename, template=template,
-                                      subject_filename=subject_filename, subject=subject,
-                                      template_type=template_type, ctx=ctx)
+        super().__init__(template_dir=template_dir,
+                         template_filename=template_filename,
+                         template=template,
+                         subject_filename=subject_filename,
+                         subject=subject,
+                         template_type=template_type, ctx=ctx)
         self.wantProperties = wantProperties
         self.wantSteps = wantSteps
         self.wantLogs = wantLogs
@@ -125,7 +124,7 @@ class MessageFormatter(MessageFormatterBase):
         elif results == EXCEPTION:
             text = "build exception"
         else:
-            text = "%s build" % (statusToString(results))
+            text = "{} build".format(statusToString(results))
 
         return text
 
@@ -148,7 +147,7 @@ class MessageFormatter(MessageFormatterBase):
             source = ""
 
             if ss['branch']:
-                source += "[branch %s] " % ss['branch']
+                source += "[branch {}] ".format(ss['branch'])
 
             if ss['revision']:
                 source += str(ss['revision'])
@@ -160,9 +159,9 @@ class MessageFormatter(MessageFormatterBase):
 
             discriminator = ""
             if ss['codebase']:
-                discriminator = " '%s'" % ss['codebase']
+                discriminator = " '{}'".format(ss['codebase'])
 
-            text += "Build Source Stamp%s: %s\n" % (discriminator, source)
+            text += "Build Source Stamp{}: {}\n".format(discriminator, source)
 
         return text
 
@@ -176,16 +175,17 @@ class MessageFormatter(MessageFormatterBase):
         if results == SUCCESS:
             text = "Build succeeded!"
         elif results == WARNINGS:
-            text = "Build Had Warnings%s" % (t,)
+            text = "Build Had Warnings{}".format(t)
         elif results == CANCELLED:
             text = "Build was cancelled"
         else:
-            text = "BUILD FAILED%s" % (t,)
+            text = "BUILD FAILED{}".format(t)
 
         return text
 
     @defer.inlineCallbacks
-    def formatMessageForBuildResults(self, mode, buildername, buildset, build, master, previous_results, blamelist):
+    def formatMessageForBuildResults(self, mode, buildername, buildset, build, master,
+                                     previous_results, blamelist):
         """Generate a buildbot mail message and return a dictionary
            containing the message body, type and subject."""
         ss_list = buildset['sourcestamps']
@@ -211,7 +211,7 @@ class MessageFormatter(MessageFormatterBase):
                    )
         yield self.buildAdditionalContext(master, ctx)
         msgdict = self.renderMessage(ctx)
-        defer.returnValue(msgdict)
+        return msgdict
 
 
 class MessageFormatterMissingWorker(MessageFormatterBase):
@@ -224,4 +224,4 @@ class MessageFormatterMissingWorker(MessageFormatterBase):
                    worker=worker)
         yield self.buildAdditionalContext(master, ctx)
         msgdict = self.renderMessage(ctx)
-        defer.returnValue(msgdict)
+        return msgdict

@@ -24,9 +24,7 @@
 # `unicode` and `raw_*` attributes for `bytes`.
 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 
 import ldap3
 
@@ -52,8 +50,6 @@ class LdapUserInfo(avatar.AvatarBase, auth.UserInfoProviderBase):
                  avatarPattern=None,
                  avatarData=None,
                  accountExtraFields=None):
-        avatar.AvatarBase.__init__(self)
-        auth.UserInfoProviderBase.__init__(self)
         self.uri = uri
         self.bindUser = bindUser
         self.bindPw = bindPw
@@ -111,8 +107,7 @@ class LdapUserInfo(avatar.AvatarBase, auth.UserInfoProviderBase):
                                   self.accountEmail, self.accountFullName] +
                               self.accountExtraFields)
             if len(res) != 1:
-                raise KeyError(
-                    "ldap search \"%s\" returned %d results" % (pattern, len(res)))
+                raise KeyError("ldap search \"{}\" returned {} results".format(pattern, len(res)))
             dn, ldap_infos = res[0]['dn'], res[0]['attributes']
 
             def getFirstLdapInfo(x):

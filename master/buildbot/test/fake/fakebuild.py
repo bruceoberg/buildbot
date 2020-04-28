@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import itervalues
-
 import posixpath
 
 import mock
@@ -32,7 +28,7 @@ from buildbot.test.fake import fakemaster
 from buildbot.worker import base
 
 
-class FakeBuildStatus(properties.PropertiesMixin, object):
+class FakeBuildStatus(properties.PropertiesMixin):
 
     def __init__(self):
         self.properties = properties.Properties()
@@ -70,6 +66,14 @@ components.registerAdapter(
     FakeBuildStatus, interfaces.IProperties)
 
 
+class FakeWorkerStatus(properties.PropertiesMixin):
+
+    def __init__(self, name):
+        self.name = name
+        self.info = properties.Properties()
+        self.info.setProperty("test", "test", "Worker")
+
+
 class FakeBuild(properties.PropertiesMixin):
 
     def __init__(self, props=None, master=None):
@@ -78,6 +82,7 @@ class FakeBuild(properties.PropertiesMixin):
         self.workerforbuilder = mock.Mock(
             spec=workerforbuilder.WorkerForBuilder)
         self.workerforbuilder.worker = mock.Mock(spec=base.Worker)
+        self.workerforbuilder.worker.worker_status = FakeWorkerStatus("mock")
         self.builder.config = config.BuilderConfig(
             name='bldr',
             workernames=['a'],
@@ -95,6 +100,7 @@ class FakeBuild(properties.PropertiesMixin):
         self.build_status.properties = props
         self.properties = props
         self.master = None
+        self.config_version = 0
 
     def getSourceStamp(self, codebase):
         if codebase in self.sources:
@@ -102,10 +108,10 @@ class FakeBuild(properties.PropertiesMixin):
         return None
 
     def getAllSourceStamps(self):
-        return list(itervalues(self.sources))
+        return list(self.sources.values())
 
     def allChanges(self):
-        for s in itervalues(self.sources):
+        for s in self.sources.values():
             for c in s.changes:
                 yield c
 
@@ -119,7 +125,21 @@ class FakeBuild(properties.PropertiesMixin):
     def getBuilder(self):
         return self.builder
 
+    def getWorkerInfo(self):
+        return self.workerforbuilder.worker.worker_status.info
+
 
 components.registerAdapter(
     lambda build: build.build_status.properties,
     FakeBuild, interfaces.IProperties)
+
+
+class FakeBuildForRendering:
+    def render(self, r):
+        if isinstance(r, str):
+            return "rendered:" + r
+        if isinstance(r, list):
+            return list(self.render(i) for i in r)
+        if isinstance(r, tuple):
+            return tuple(self.render(i) for i in r)
+        return r

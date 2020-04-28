@@ -13,36 +13,30 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import division
-from __future__ import print_function
-
-from builtins import bytes
-from future.moves.urllib.parse import urlsplit
-from future.moves.urllib.parse import urlunsplit
-from future.utils import PY3
-from future.utils import string_types
-from future.utils import text_type
-
 import calendar
 import datetime
 import itertools
+import json
 import locale
 import re
+import sys
 import textwrap
 import time
-import json
+from builtins import bytes
+from urllib.parse import urlsplit
+from urllib.parse import urlunsplit
 
 import dateutil.tz
 
 from twisted.python import reflect
-from twisted.python.versions import Version
 from twisted.python.deprecate import deprecatedModuleAttribute
-
+from twisted.python.versions import Version
 from zope.interface import implementer
 
 from buildbot.interfaces import IConfigured
-from buildbot.util.misc import deferredLocked
 from buildbot.util.giturlparse import giturlparse
+from buildbot.util.misc import deferredLocked
+
 from ._notifier import Notifier
 
 
@@ -66,8 +60,8 @@ def naturalSort(array):
 def flattened_iterator(l, types=(list, tuple)):
     """
     Generator for a list/tuple that potentially contains nested/lists/tuples of arbitrary nesting
-    that returns every individual non-list/tuple element.  In other words, [(5, 6, [8, 3]), 2, [2, 1, (3, 4)]]
-    will yield 5, 6, 8, 3, 2, 2, 1, 3, 4
+    that returns every individual non-list/tuple element.  In other words,
+    # [(5, 6, [8, 3]), 2, [2, 1, (3, 4)]] will yield 5, 6, 8, 3, 2, 2, 1, 3, 4
 
     This is safe to call on something not a list/tuple - the original input is yielded.
     """
@@ -113,8 +107,46 @@ def formatInterval(eta):
     return ", ".join(eta_parts)
 
 
+def fuzzyInterval(seconds):
+    """
+    Convert time interval specified in seconds into fuzzy, human-readable form
+    """
+    if seconds <= 1:
+        return "a moment"
+    if seconds < 20:
+        return "{:d} seconds".format(seconds)
+    if seconds < 55:
+        return "{:d} seconds".format(round(seconds / 10.) * 10)
+    minutes = round(seconds / 60.)
+    if minutes == 1:
+        return "a minute"
+    if minutes < 20:
+        return "{:d} minutes".format(minutes)
+    if minutes < 55:
+        return "{:d} minutes".format(round(minutes / 10.) * 10)
+    hours = round(minutes / 60.)
+    if hours == 1:
+        return "an hour"
+    if hours < 24:
+        return "{:d} hours".format(hours)
+    days = (hours + 6) // 24
+    if days == 1:
+        return "a day"
+    if days < 30:
+        return "{:d} days".format(days)
+    months = int((days + 10) / 30.5)
+    if months == 1:
+        return "a month"
+    if months < 12:
+        return "{} months".format(months)
+    years = round(days / 365.25)
+    if years == 1:
+        return "a year"
+    return "{} years".format(years)
+
+
 @implementer(IConfigured)
-class ComparableMixin(object):
+class ComparableMixin:
     compare_attrs = ()
 
     class _None:
@@ -186,8 +218,9 @@ class ComparableMixin(object):
         compare_attrs = []
         reflect.accumulateClassList(
             self.__class__, 'compare_attrs', compare_attrs)
-        return dict([(k, getattr(self, k)) for k in compare_attrs
-                     if hasattr(self, k) and k not in ("passwd", "password")])
+        return {k: getattr(self, k)
+                for k in compare_attrs
+                if hasattr(self, k) and k not in ("passwd", "password")}
 
 
 def diffSets(old, new):
@@ -205,7 +238,7 @@ badchars_map = bytes.maketrans(b"\t !#$%&'()*+,./:;<=>?@[\\]^{|}~",
 
 
 def safeTranslate(s):
-    if isinstance(s, text_type):
+    if isinstance(s, str):
         s = s.encode('utf8')
     return s.translate(badchars_map)
 
@@ -217,60 +250,15 @@ def none_or_str(x):
 
 
 def unicode2bytes(x, encoding='utf-8', errors='strict'):
-    if isinstance(x, text_type):
+    if isinstance(x, str):
         x = x.encode(encoding, errors)
     return x
 
 
 def bytes2unicode(x, encoding='utf-8', errors='strict'):
-    if isinstance(x, (text_type, type(None))):
+    if isinstance(x, (str, type(None))):
         return x
-    return text_type(x, encoding, errors)
-
-
-def bytes2NativeString(x, encoding='utf-8', errors='strict'):
-    """
-    Convert C{bytes} to a native C{str}.
-
-    On Python 3 and higher, str and bytes
-    are not equivalent.  In this case, decode
-    the bytes, and return a native string.
-
-    On Python 2 and lower, str and bytes
-    are equivalent.  In this case, just
-    just return the native string.
-
-    @param x: a string of type C{bytes}
-    @param encoding: an optional codec, default: 'utf-8'
-    @return: a string of type C{str}
-    """
-    if isinstance(x, bytes) and PY3:
-        # On Python 3 and higher, type("") != type(b"")
-        # so we need to decode() to return a native string.
-        return x.decode(encoding, errors)
-    return x
-
-
-def unicode2NativeString(x, encoding='utf-8', errors='strict'):
-    """
-    Convert C{unicode} to a native C{str}.
-
-    On Python 3 and higher, the unicode type is gone,
-    replaced by str.   In this case, do nothing
-    and just return the native string.
-
-    On Python 2 and lower, unicode and str are separate types.
-    In this case, encode() to return the native string.
-
-    @param x: a string of type C{unicode}
-    @param encoding: an optional codec, default: 'utf-8'
-    @return: a string of type C{str}
-    """
-    if isinstance(x, text_type) and not PY3:
-        # On Python 2 and lower, type(u"") != type("")
-        # so we need to encode() to return a native string.
-        return x.encode(encoding, errors)
-    return x
+    return str(x, encoding, errors)
 
 
 _hush_pyflakes = [json]
@@ -286,6 +274,7 @@ deprecatedModuleAttribute(
 def toJson(obj):
     if isinstance(obj, datetime.datetime):
         return datetime2epoch(obj)
+    return None
 
 
 # changes and schedulers consider None to be a legitimate name for a branch,
@@ -297,8 +286,6 @@ class NotABranch:
 
     def __bool__(self):
         return False
-    if not PY3:
-        __nonzero__ = __bool__
 
 
 NotABranch = NotABranch()
@@ -313,12 +300,14 @@ def epoch2datetime(epoch):
     """Convert a UNIX epoch time to a datetime object, in the UTC timezone"""
     if epoch is not None:
         return datetime.datetime.fromtimestamp(epoch, tz=UTC)
+    return None
 
 
 def datetime2epoch(dt):
     """Convert a non-naive datetime object to a UNIX epoch timestamp"""
     if dt is not None:
         return calendar.timegm(dt.utctimetuple())
+    return None
 
 
 # TODO: maybe "merge" with formatInterval?
@@ -350,7 +339,7 @@ def human_readable_delta(start, end):
 
 
 def makeList(input):
-    if isinstance(input, string_types):
+    if isinstance(input, str):
         return [input]
     elif input is None:
         return []
@@ -368,7 +357,7 @@ def in_reactor(f):
 
             @d.addErrback
             def eb(f):
-                f.printTraceback()
+                f.printTraceback(file=sys.stderr)
 
             @d.addBoth
             def do_stop(r):
@@ -396,8 +385,12 @@ def string2boolean(str):
     }[str.lower()]
 
 
-def asyncSleep(delay):
-    from twisted.internet import reactor, defer
+def asyncSleep(delay, reactor=None):
+    from twisted.internet import defer
+    from twisted.internet import reactor as internet_reactor
+    if reactor is None:
+        reactor = internet_reactor
+
     d = defer.Deferred()
     reactor.callLater(delay, d.callback, None)
     return d
@@ -408,7 +401,8 @@ def check_functional_environment(config):
         locale.getdefaultlocale()
     except (KeyError, ValueError) as e:
         config.error("\n".join([
-            "Your environment has incorrect locale settings. This means python cannot handle strings safely.",
+            "Your environment has incorrect locale settings. This means python cannot handle "
+            "strings safely.",
             " Please check 'LANG', 'LC_CTYPE', 'LC_ALL' and 'LANGUAGE'"
             " are either unset or set to a valid locale.", str(e)
         ]))
@@ -425,13 +419,13 @@ def stripUrlPassword(url):
 
 def join_list(maybeList):
     if isinstance(maybeList, (list, tuple)):
-        return u' '.join(bytes2unicode(s) for s in maybeList)
+        return ' '.join(bytes2unicode(s) for s in maybeList)
     return bytes2unicode(maybeList)
 
 
 def command_to_string(command):
     words = command
-    if isinstance(words, (bytes, string_types)):
+    if isinstance(words, (bytes, str)):
         words = words.split()
 
     try:
@@ -449,19 +443,19 @@ def command_to_string(command):
     # description is requested before rendering)
     stringWords = []
     for w in words:
-        if isinstance(w, (bytes, string_types)):
+        if isinstance(w, (bytes, str)):
             # If command was bytes, be gentle in
             # trying to covert it.
             w = bytes2unicode(w, errors="replace")
             stringWords.append(w)
     words = stringWords
 
-    if len(words) < 1:
+    if not words:
         return None
     if len(words) < 3:
-        rv = "'%s'" % (' '.join(words))
+        rv = "'{}'".format(' '.join(words))
     else:
-        rv = "'%s ...'" % (' '.join(words[:2]))
+        rv = "'{} ...'".format(' '.join(words[:2]))
 
     return rv
 

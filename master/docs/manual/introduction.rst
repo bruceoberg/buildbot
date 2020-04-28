@@ -4,12 +4,12 @@ Introduction
 ============
 
 Buildbot is a system to automate the compile/test cycle required by most software projects to validate code changes.
-By automatically rebuilding and testing the tree each time something has changed, build problems are pinpointed quickly, before other developers are inconvenienced by the failure.
+By automatically rebuilding and testing the project each time something has changed, build problems are pinpointed quickly, before other developers are inconvenienced by the failure.
 The guilty developer can be identified and harassed without human intervention.
 By running the builds on a variety of platforms, developers who do not have the facilities to test their changes everywhere before checkin will at least know shortly afterwards whether they have broken the build or not.
 Warning counts, lint checks, image size, compile time, and other build parameters can be tracked over time, are more visible, and are therefore easier to improve.
 
-The overall goal is to reduce tree breakage and provide a platform to run tests or code-quality checks that are too annoying or pedantic for any human to waste their time with.
+The overall goal is to reduce project breakage and provide a platform to run tests or code-quality checks that are too annoying or pedantic for any human to waste their time with.
 Developers get immediate (and potentially public) feedback about their changes, encouraging them to be more careful about testing before checkin.
 
 Features:
@@ -31,16 +31,16 @@ History and Philosophy
 
 The Buildbot was inspired by a similar project built for a development team writing a cross-platform embedded system.
 The various components of the project were supposed to compile and run on several flavors of unix (linux, solaris, BSD), but individual developers had their own preferences and tended to stick to a single platform.
-From time to time, incompatibilities would sneak in (some unix platforms want to use :file:`string.h`, some prefer :file:`strings.h`), and then the tree would compile for some developers but not others.
-The buildbot was written to automate the human process of walking into the office, updating a tree, compiling (and discovering the breakage), finding the developer at fault, and complaining to them about the problem they had introduced.
-With multiple platforms it was difficult for developers to do the right thing (compile their potential change on all platforms); the buildbot offered a way to help.
+From time to time, incompatibilities would sneak in (some unix platforms want to use :file:`string.h`, some prefer :file:`strings.h`), and then the project would compile for some developers but not others.
+The Buildbot was written to automate the human process of walking into the office, updating a project, compiling (and discovering the breakage), finding the developer at fault, and complaining to them about the problem they had introduced.
+With multiple platforms it was difficult for developers to do the right thing (compile their potential change on all platforms); the Buildbot offered a way to help.
 
 Another problem was when programmers would change the behavior of a library without warning its users, or change internal aspects that other code was (unfortunately) depending upon.
 Adding unit tests to the codebase helps here: if an application's unit tests pass despite changes in the libraries it uses, you can have more confidence that the library changes haven't broken anything.
-Many developers complained that the unit tests were inconvenient or took too long to run: having the buildbot run them reduces the developer's workload to a minimum.
+Many developers complained that the unit tests were inconvenient or took too long to run: having the Buildbot run them reduces the developer's workload to a minimum.
 
 In general, having more visibility into the project is always good, and automation makes it easier for developers to do the right thing.
-When everyone can see the status of the project, developers are encouraged to keep the tree in good working order.
+When everyone can see the status of the project, developers are encouraged to keep the project in good working order.
 Unit tests that aren't run on a regular basis tend to suffer from bitrot just like code does: exercising them on a regular basis helps to keep them functioning and useful.
 
 The current version of the Buildbot is additionally targeted at distributed free-software projects, where resources and platforms are only available when provided by interested volunteers.
@@ -73,7 +73,7 @@ Worker Connections
 ~~~~~~~~~~~~~~~~~~
 
 The workers are typically run on a variety of separate machines, at least one per platform of interest.
-These machines connect to the buildmaster over a TCP connection to a publically-visible port.
+These machines connect to the buildmaster over a TCP connection to a publicly-visible port.
 As a result, the workers can live behind a NAT box or similar firewalls, as long as they can get to buildmaster.
 The TCP connections are initiated by the worker and accepted by the buildmaster, but commands and results travel both ways within this connection.
 The buildmaster is always in charge, so all commands travel exclusively from the buildmaster to the worker.
@@ -168,7 +168,7 @@ These allow status plugins to report information about upcoming builds, and the 
 Control Flow
 ------------
 
-A day in the life of the buildbot:
+A day in the life of the Buildbot:
 
 * A developer commits some source code changes to the repository.
   A hook script or commit trigger of some sort sends information about this change to the buildmaster through one of its configured Change Sources.

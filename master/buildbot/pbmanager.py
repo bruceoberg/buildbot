@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.application import strports
 from twisted.cred import checkers
@@ -45,10 +43,11 @@ class PBManager(service.AsyncMultiService):
     """
 
     def __init__(self):
-        service.AsyncMultiService.__init__(self)
+        super().__init__()
         self.setName('pbmanager')
         self.dispatchers = {}
 
+    @defer.inlineCallbacks
     def register(self, portstr, username, password, pfactory):
         """
         Register a perspective factory PFACTORY to be executed when a PB
@@ -57,13 +56,13 @@ class PBManager(service.AsyncMultiService):
         """
         # do some basic normalization of portstrs
         if isinstance(portstr, type(0)) or ':' not in portstr:
-            portstr = "tcp:%s" % portstr
+            portstr = "tcp:{}".format(portstr)
 
         reg = Registration(self, portstr, username)
 
         if portstr not in self.dispatchers:
             disp = self.dispatchers[portstr] = Dispatcher(portstr)
-            disp.setServiceParent(self)
+            yield disp.setServiceParent(self)
         else:
             disp = self.dispatchers[portstr]
 
@@ -71,6 +70,7 @@ class PBManager(service.AsyncMultiService):
 
         return reg
 
+    @defer.inlineCallbacks
     def _unregister(self, registration):
         disp = self.dispatchers[registration.portstr]
         disp.unregister(registration.username)
@@ -78,11 +78,10 @@ class PBManager(service.AsyncMultiService):
         if not disp.users:
             disp = self.dispatchers[registration.portstr]
             del self.dispatchers[registration.portstr]
-            return defer.maybeDeferred(disp.disownServiceParent)
-        return defer.succeed(None)
+            yield disp.disownServiceParent()
 
 
-class Registration(object):
+class Registration:
 
     def __init__(self, pbmanager, portstr, username):
         self.portstr = portstr
@@ -93,8 +92,7 @@ class Registration(object):
         self.pbmanager = pbmanager
 
     def __repr__(self):
-        return "<pbmanager.Registration for %s on %s>" % \
-            (self.username, self.portstr)
+        return "<pbmanager.Registration for {} on {}>".format(self.username, self.portstr)
 
     def unregister(self):
         """
@@ -131,35 +129,34 @@ class Dispatcher(service.AsyncService):
         self.port = None
 
     def __repr__(self):
-        return "<pbmanager.Dispatcher for %s on %s>" % \
-            (", ".join(list(self.users)), self.portstr)
+        return "<pbmanager.Dispatcher for {} on {}>".format(", ".join(list(self.users)),
+                                                            self.portstr)
 
     def startService(self):
         assert not self.port
         self.port = strports.listen(self.portstr, self.serverFactory)
-        return service.AsyncService.startService(self)
+        return super().startService()
 
+    @defer.inlineCallbacks
     def stopService(self):
         # stop listening on the port when shut down
         assert self.port
         port, self.port = self.port, None
-        d = defer.maybeDeferred(port.stopListening)
-        d.addCallback(lambda _: service.AsyncService.stopService(self))
-        return d
+        yield defer.maybeDeferred(port.stopListening)
+        yield super().stopService()
 
     def register(self, username, password, pfactory):
         if debug:
-            log.msg("registering username '%s' on pb port %s: %s"
-                    % (username, self.portstr, pfactory))
+            log.msg("registering username '{}' on pb port {}: {}".format(username, self.portstr,
+                                                                         pfactory))
         if username in self.users:
-            raise KeyError("username '%s' is already registered on PB port %s"
-                           % (username, self.portstr))
+            raise KeyError("username '{}' is already registered on PB port {}".format(username,
+                                                                                      self.portstr))
         self.users[username] = (password, pfactory)
 
     def unregister(self, username):
         if debug:
-            log.msg("unregistering username '%s' on pb port %s"
-                    % (username, self.portstr))
+            log.msg("unregistering username '{}' on pb port {}".format(username, self.portstr))
         del self.users[username]
 
     # IRealm
@@ -177,7 +174,7 @@ class Dispatcher(service.AsyncService):
         @d.addCallback
         def check(persp):
             if not persp:
-                raise ValueError("no perspective for '%s'" % username)
+                raise ValueError("no perspective for '{}'".format(username))
             return persp
 
         # call the perspective's attached(mind)
@@ -211,7 +208,7 @@ class Dispatcher(service.AsyncService):
                 if not matched:
                     log.msg("invalid login from user '{}'".format(username))
                     raise error.UnauthorizedLogin()
-                defer.returnValue(creds.username)
+                return creds.username
             log.msg("invalid login from unknown user '{}'".format(username))
             raise error.UnauthorizedLogin()
         finally:

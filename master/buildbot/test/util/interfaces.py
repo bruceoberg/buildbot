@@ -13,18 +13,16 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.builtins import range
-from future.utils import PY3
 
 import inspect
 import pkg_resources
 
+import zope.interface.interface
 from twisted.trial import unittest
+from zope.interface.interface import Attribute
 
 
-class InterfaceTests(object):
+class InterfaceTests:
 
     # assertions
 
@@ -65,17 +63,13 @@ class InterfaceTests(object):
                 return func
 
         def filter_argspec(func):
-            if PY3:
-                return filter(
-                    inspect.getfullargspec(remove_decorators(func)))
             return filter(
-                inspect.getargspec(remove_decorators(func)))
+                inspect.getfullargspec(remove_decorators(func)))
 
         def assert_same_argspec(expected, actual):
             if expected != actual:
-                msg = "Expected: %s; got: %s" % (
-                    inspect.formatargspec(*expected),
-                    inspect.formatargspec(*actual))
+                msg = "Expected: {}; got: {}".format(inspect.formatargspec(*expected),
+                                                     inspect.formatargspec(*actual))
                 self.fail(msg)
 
         actual_argspec = filter_argspec(actualMethod)
@@ -101,23 +95,23 @@ class InterfaceTests(object):
             raise unittest.SkipTest(
                 "zope.interfaces is too old to run this test")
 
-        import zope.interface.interface
         for interface in zope.interface.implementedBy(cls):
             for attr, template_argspec in interface.namesAndDescriptions():
                 if not hasattr(cls, attr):
-                    msg = "Expected: %r; to implement: %s as specified in %r" % (
-                        cls, attr,
-                        interface)
+                    msg = ("Expected: {}; to implement: {} as specified in {}"
+                           ).format(repr(cls), attr, repr(interface))
                     self.fail(msg)
                 actual_argspec = getattr(cls, attr)
+                if isinstance(template_argspec, Attribute):
+                    continue
+                # else check method signatures
                 while hasattr(actual_argspec, '__wrapped__'):
                     actual_argspec = actual_argspec.__wrapped__
                 actual_argspec = zope.interface.interface.fromMethod(
                     actual_argspec)
 
                 if actual_argspec.getSignatureInfo() != template_argspec.getSignatureInfo():
-                    msg = "%s: expected: %s; got: %s" % (
-                        attr,
-                        template_argspec.getSignatureString(),
-                        actual_argspec.getSignatureString())
+                    msg = ("{}: expected: {}; got: {}"
+                           ).format(attr, template_argspec.getSignatureString(),
+                                    actual_argspec.getSignatureString())
                     self.fail(msg)

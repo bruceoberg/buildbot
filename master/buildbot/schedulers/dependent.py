@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 
@@ -31,7 +29,7 @@ class Dependent(base.BaseScheduler):
     compare_attrs = ('upstream_name',)
 
     def __init__(self, name, upstream, builderNames, **kwargs):
-        base.BaseScheduler.__init__(self, name, builderNames, **kwargs)
+        super().__init__(name, builderNames, **kwargs)
         if not interfaces.IScheduler.providedBy(upstream):
             config.error(
                 "upstream must be another Scheduler instance")
@@ -47,7 +45,7 @@ class Dependent(base.BaseScheduler):
 
     @defer.inlineCallbacks
     def activate(self):
-        yield base.BaseScheduler.deactivate(self)
+        yield super().activate()
 
         if not self.enabled:
             return
@@ -67,7 +65,7 @@ class Dependent(base.BaseScheduler):
     @defer.inlineCallbacks
     def deactivate(self):
         # the base deactivate will unsubscribe from new changes
-        yield base.BaseScheduler.deactivate(self)
+        yield super().deactivate()
 
         if not self.enabled:
             return
@@ -82,7 +80,7 @@ class Dependent(base.BaseScheduler):
     def _buildset_new_cb(self, key, msg):
         # check if this was submitted by our upstream
         if msg['scheduler'] != self.upstream_name:
-            return
+            return None
 
         # record our interest in this buildset
         return self._addUpstreamBuildset(msg['bsid'])
@@ -108,8 +106,8 @@ class Dependent(base.BaseScheduler):
             # differ from one another)
             if sub_results in (SUCCESS, WARNINGS):
                 yield self.addBuildsetForSourceStamps(
-                    sourcestamps=[ssid for ssid in sub_ssids],
-                    reason=u'downstream')
+                    sourcestamps=sub_ssids.copy(),
+                    reason='downstream')
 
             sub_bsids.append(sub_bsid)
 
@@ -145,7 +143,7 @@ class Dependent(base.BaseScheduler):
             yield self.master.db.state.setState(self.objectid,
                                                 'upstream_bsids', self._cached_upstream_bsids)
 
-        defer.returnValue(rv)
+        return rv
 
     @defer.inlineCallbacks
     def _addUpstreamBuildset(self, bsid):

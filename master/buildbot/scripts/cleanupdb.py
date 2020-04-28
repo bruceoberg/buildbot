@@ -13,9 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import os
 import sys
@@ -32,7 +29,7 @@ from buildbot.util import in_reactor
 @defer.inlineCallbacks
 def doCleanupDatabase(config, master_cfg):
     if not config['quiet']:
-        print("cleaning database (%s)" % (master_cfg.db['db_url']))
+        print("cleaning database ({})".format(master_cfg.db['db_url']))
 
     master = BuildMaster(config['basedir'])
     master.config = master_cfg
@@ -86,27 +83,25 @@ def cleanupDatabase(config, _noMonkey=False):  # pragma: no cover
 def _cleanupDatabase(config, _noMonkey=False):
 
     if not base.checkBasedir(config):
-        defer.returnValue(1)
-        return
+        return 1
 
     config['basedir'] = os.path.abspath(config['basedir'])
     os.chdir(config['basedir'])
 
     with base.captureErrors((SyntaxError, ImportError),
-                            "Unable to load 'buildbot.tac' from '%s':" % (config['basedir'],)):
+                            "Unable to load 'buildbot.tac' from '{}':".format(config['basedir'])):
         configFile = base.getConfigFileFromTac(config['basedir'])
 
     with base.captureErrors(config_module.ConfigErrors,
-                            "Unable to load '%s' from '%s':" % (configFile, config['basedir'])):
+                            "Unable to load '{}' from '{}':".format(configFile, config['basedir'])):
         master_cfg = base.loadConfig(config, configFile)
 
     if not master_cfg:
-        defer.returnValue(1)
-        return
+        return 1
 
     yield doCleanupDatabase(config, master_cfg)
 
     if not config['quiet']:
         print("cleanup complete")
 
-    defer.returnValue(0)
+    return 0

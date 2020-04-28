@@ -19,11 +19,7 @@
 # Also don't forget to mirror your changes on command-line options in manual
 # pages and reStructuredText documentation.
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from future.builtins import range
-
+import getpass
 import sys
 import textwrap
 
@@ -151,7 +147,7 @@ class CreateMasterOptions(base.BasedirMixin, base.SubcommandOptions):
     """)
 
     def postOptions(self):
-        base.BasedirMixin.postOptions(self)
+        super().postOptions()
 
         # validate 'log-count' parameter
         if self['log-count'] == 'None':
@@ -168,8 +164,7 @@ class CreateMasterOptions(base.BasedirMixin, base.SubcommandOptions):
             # check if sqlalchemy will be able to parse specified URL
             sa.engine.url.make_url(self['db'])
         except sa.exc.ArgumentError:
-            raise usage.UsageError("could not parse database URL '%s'"
-                                   % self['db'])
+            raise usage.UsageError("could not parse database URL '{}'".format(self['db']))
 
 
 class StopOptions(base.BasedirMixin, base.SubcommandOptions):
@@ -191,6 +186,11 @@ class RestartOptions(base.BasedirMixin, base.SubcommandOptions):
         ['nodaemon', None, "Don't daemonize (stay in foreground)"],
         ["clean", "c", "Clean shutdown master"],
     ]
+    optParameters = [
+        ['start_timeout', None, None,
+         'The amount of time the script waits for the master to restart until '
+         'it declares the operation as failure'],
+    ]
 
     def getSynopsis(self):
         return "Usage:    buildbot restart [<basedir>]"
@@ -201,6 +201,11 @@ class StartOptions(base.BasedirMixin, base.SubcommandOptions):
     optFlags = [
         ['quiet', 'q', "Don't display startup log messages"],
         ['nodaemon', None, "Don't daemonize (stay in foreground)"],
+    ]
+    optParameters = [
+        ['start_timeout', None, None,
+         'The amount of time the script waits for the master to start until it '
+         'declares the operation as failure'],
     ]
 
     def getSynopsis(self):
@@ -221,7 +226,7 @@ class SendChangeOptions(base.SubcommandOptions):
     subcommandFunction = "buildbot.scripts.sendchange.sendchange"
 
     def __init__(self):
-        base.SubcommandOptions.__init__(self)
+        super().__init__()
         self['properties'] = {}
 
     optParameters = [
@@ -272,7 +277,7 @@ class SendChangeOptions(base.SubcommandOptions):
         self['properties'][name] = value
 
     def postOptions(self):
-        base.SubcommandOptions.postOptions(self)
+        super().postOptions()
 
         if self.get("revision_file"):
             with open(self["revision_file"], "r") as f:
@@ -282,8 +287,7 @@ class SendChangeOptions(base.SubcommandOptions):
             try:
                 self['when'] = float(self['when'])
             except (TypeError, ValueError):
-                raise usage.UsageError('invalid "when" value %s'
-                                       % (self['when'],))
+                raise usage.UsageError('invalid "when" value {}'.format(self['when']))
         else:
             self['when'] = None
 
@@ -299,14 +303,13 @@ class SendChangeOptions(base.SubcommandOptions):
         # fix up the auth with a password if none was given
         auth = self.get('auth')
         if ':' not in auth:
-            import getpass
-            pw = getpass.getpass("Enter password for '%s': " % auth)
-            auth = "%s:%s" % (auth, pw)
+            pw = getpass.getpass("Enter password for '{}': ".format(auth))
+            auth = "{}:{}".format(auth, pw)
         self['auth'] = tuple(auth.split(':', 1))
 
         vcs = ['cvs', 'svn', 'darcs', 'hg', 'bzr', 'git', 'mtn', 'p4']
         if self.get('vc') and self.get('vc') not in vcs:
-            raise usage.UsageError("vc must be one of %s" % (', '.join(vcs)))
+            raise usage.UsageError("vc must be one of {}".format(', '.join(vcs)))
 
         validateMasterOption(self.get('master'))
 
@@ -418,7 +421,7 @@ class TryOptions(base.SubcommandOptions):
     ]
 
     def __init__(self):
-        base.SubcommandOptions.__init__(self)
+        super().__init__()
         self['builders'] = []
         self['properties'] = {}
 
@@ -429,8 +432,8 @@ class TryOptions(base.SubcommandOptions):
         # We need to split the value of this option
         # into a dictionary of properties
         propertylist = option.split(",")
-        for i in range(0, len(propertylist)):
-            splitproperty = propertylist[i].split("=", 1)
+        for prop in propertylist:
+            splitproperty = prop.split("=", 1)
             self['properties'][splitproperty[0]] = splitproperty[1]
 
     def opt_property(self, option):
@@ -444,7 +447,7 @@ class TryOptions(base.SubcommandOptions):
         return "Usage:    buildbot try [options]"
 
     def postOptions(self):
-        base.SubcommandOptions.postOptions(self)
+        super().postOptions()
         opts = self.optionsFile
         if not self['builders']:
             self['builders'] = opts.get('try_builders', [])
@@ -540,7 +543,7 @@ class UserOptions(base.SubcommandOptions):
     """)
 
     def __init__(self):
-        base.SubcommandOptions.__init__(self)
+        super().__init__()
         self['ids'] = []
         self['info'] = []
 
@@ -557,8 +560,8 @@ class UserOptions(base.SubcommandOptions):
             info_elem["identifier"] = info_list[0]
             self['info'].append(info_elem)
         else:
-            for i in range(0, len(info_list)):
-                split_info = info_list[i].split("=", 1)
+            for info_item in info_list:
+                split_info = info_item.split("=", 1)
 
                 # pull identifier from update --info
                 if ":" in split_info[0]:
@@ -579,12 +582,11 @@ class UserOptions(base.SubcommandOptions):
         for user in info:
             for attr_type in user:
                 if attr_type not in valid:
-                    raise usage.UsageError(
-                        "Type not a valid attr_type, must be in: %s"
-                        % ', '.join(valid))
+                    raise usage.UsageError("Type not a valid attr_type, must be in: {}".format(
+                            ', '.join(valid)))
 
     def postOptions(self):
-        base.SubcommandOptions.postOptions(self)
+        super().postOptions()
 
         validateMasterOption(self.get('master'))
 
@@ -616,7 +618,7 @@ class UserOptions(base.SubcommandOptions):
         if not info and not ids:
             raise usage.UsageError("must specify either --ids or --info")
 
-        if op == 'add' or op == 'update':
+        if op in ('add', 'update'):
             if ids:
                 raise usage.UsageError("cannot use --ids with 'add' or "
                                        "'update'")
@@ -631,7 +633,7 @@ class UserOptions(base.SubcommandOptions):
                     if 'identifier' in user:
                         raise usage.UsageError("identifier found in add info, "
                                                "use: --info=type=value,type=value,..")
-        if op == 'remove' or op == 'get':
+        if op in ('remove', 'get'):
             if info:
                 raise usage.UsageError("cannot use --info with 'remove' "
                                        "or 'get'")
@@ -649,15 +651,26 @@ class DataSpecOption(base.BasedirMixin, base.SubcommandOptions):
         return "Usage:   buildbot dataspec [options]"
 
 
-class ProcessWWWIndexOption(base.BasedirMixin, base.SubcommandOptions):
+class DevProxyOptions(base.BasedirMixin, base.SubcommandOptions):
 
-    """This command is used with the front end's proxy task. It enables to run the front end
-    without the backend server running in the background"""
+    """Run a fake web server serving the local ui frontend and a distant rest and websocket api.
+    This command required aiohttp to be installed in the virtualenv"""
 
-    subcommandFunction = "buildbot.scripts.processwwwindex.processwwwindex"
+    subcommandFunction = "buildbot.scripts.devproxy.devproxy"
+    optFlags = [
+        ["unsafe_ssl", None, "Bypass ssl certificate validation"],
+    ]
     optParameters = [
-        ['index-file', 'i', None,
-            "Path to the index.html file to be processed"],
+        ["port", "p", 8011,
+         "http port to use"],
+        ["plugins", None, None,
+         "plugin config to use. As json string e.g: "
+         "--plugins='{\"custom_plugin\": {\"option1\": true}}'"],
+        ["auth_cookie", None, None,
+         "TWISTED_SESSION cookie to be used for auth "
+         "(taken in developer console: in document.cookie variable)"],
+        ["buildbot_url", "b", "https://buildbot.buildbot.net",
+         "real buildbot url to proxy to (can be http or https)"]
     ]
 
 
@@ -721,9 +734,8 @@ class Options(usage.Options):
          "Manage users in buildbot's database"],
         ['dataspec', None, DataSpecOption,
          "Output data api spec"],
-        ['processwwwindex', None, ProcessWWWIndexOption,
-         "Process the index.html to enable the front end package working without backend. "
-         "This is a command to work with the frontend's proxy task."
+        ['dev-proxy', None, DevProxyOptions,
+         "Run a fake web server serving the local ui frontend and a distant rest and websocket api."
          ],
         ['cleanupdb', None, CleanupDBOptions,
          "cleanup the database"
@@ -731,8 +743,8 @@ class Options(usage.Options):
     ]
 
     def opt_version(self):
-        print("Buildbot version: %s" % buildbot.version)
-        usage.Options.opt_version(self)
+        print("Buildbot version: {}".format(buildbot.version))
+        super().opt_version()
 
     def opt_verbose(self):
         from twisted.python import log
@@ -749,7 +761,7 @@ def run():
     try:
         config.parseOptions(sys.argv[1:])
     except usage.error as e:
-        print("%s:  %s" % (sys.argv[0], e))
+        print("{}:  {}".format(sys.argv[0], e))
         print()
 
         c = getattr(config, 'subOptions', config)

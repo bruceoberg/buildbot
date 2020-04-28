@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-
 import re
 
 from buildbot import config
@@ -34,7 +30,7 @@ class BuildEPYDoc(ShellCommand):
     descriptionDone = ["epydoc"]
 
     def __init__(self, **kwargs):
-        ShellCommand.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.addLogObserver(
             'stdio', logobserver.LineConsumerLogObserver(self.logConsumer))
 
@@ -86,7 +82,7 @@ class PyFlakes(ShellCommand):
         # categorize this initially as WARNINGS so that
         # evaluateCommand below can inspect the results more closely.
         kwargs['decodeRC'] = {0: SUCCESS, 1: WARNINGS}
-        ShellCommand.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.addLogObserver(
             'stdio', logobserver.LineConsumerLogObserver(self.logConsumer))
 
@@ -148,9 +144,9 @@ class PyFlakes(ShellCommand):
         else:
             for m in self._MESSAGES:
                 if counts[m]:
-                    self.descriptionDone.append("%s=%d" % (m, counts[m]))
+                    self.descriptionDone.append("{}={}".format(m, counts[m]))
                     self.addCompleteLog(m, "\n".join(summaries[m]))
-                self.setProperty("pyflakes-%s" % m, counts[m], "pyflakes")
+                self.setProperty("pyflakes-{}".format(m), counts[m], "pyflakes")
             self.setProperty("pyflakes-total", sum(counts.values()),
                              "pyflakes")
 
@@ -158,7 +154,7 @@ class PyFlakes(ShellCommand):
         if cmd.didFail() or self._hasSyntaxError:
             return FAILURE
         for m in self._flunkingIssues:
-            if self.getProperty("pyflakes-%s" % m):
+            if self.getProperty("pyflakes-{}".format(m)):
                 return FAILURE
         if self.getProperty("pyflakes-total"):
             return WARNINGS
@@ -213,7 +209,7 @@ class PyLint(ShellCommand):
         r'[^:]+:\d+: \[%s(\d{4})?(\([a-z-]+\))?[,\]] .+' % _msgtypes_re_str)
 
     def __init__(self, **kwargs):
-        ShellCommand.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.counts = {}
         self.summaries = {}
         self.addLogObserver(
@@ -247,18 +243,18 @@ class PyLint(ShellCommand):
     def createSummary(self, log):
         counts, summaries = self.counts, self.summaries
         self.descriptionDone = self.descriptionDone[:]
-        for msg, fullmsg in sorted(iteritems(self._MESSAGES)):
+        for msg, fullmsg in sorted(self._MESSAGES.items()):
             if counts[msg]:
-                self.descriptionDone.append("%s=%d" % (fullmsg, counts[msg]))
+                self.descriptionDone.append("{}={}".format(fullmsg, counts[msg]))
                 self.addCompleteLog(fullmsg, "\n".join(summaries[msg]))
-            self.setProperty("pylint-%s" % fullmsg, counts[msg], 'Pylint')
+            self.setProperty("pylint-{}".format(fullmsg), counts[msg], 'Pylint')
         self.setProperty("pylint-total", sum(counts.values()), 'Pylint')
 
     def evaluateCommand(self, cmd):
         if cmd.rc & (self.RC_FATAL | self.RC_ERROR | self.RC_USAGE):
             return FAILURE
         for msg in self._flunkingIssues:
-            if self.getProperty("pylint-%s" % self._MESSAGES[msg]):
+            if self.getProperty("pylint-{}".format(self._MESSAGES[msg])):
                 return FAILURE
         if self.getProperty("pylint-total"):
             return WARNINGS
@@ -277,7 +273,7 @@ class Sphinx(ShellCommand):
 
     def __init__(self, sphinx_sourcedir='.', sphinx_builddir=None,
                  sphinx_builder=None, sphinx='sphinx-build', tags=None,
-                 defines=None, mode='incremental', **kwargs):
+                 defines=None, strict_warnings=False, mode='incremental', **kwargs):
 
         if tags is None:
             tags = []
@@ -294,7 +290,7 @@ class Sphinx(ShellCommand):
                          "'full' is required")
 
         self.success = False
-        ShellCommand.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
         # build the command
         command = [sphinx]
@@ -309,12 +305,15 @@ class Sphinx(ShellCommand):
                 command.extend(['-D', key])
             elif isinstance(defines[key], bool):
                 command.extend(['-D',
-                                '%s=%d' % (key, defines[key] and 1 or 0)])
+                                '{}={}'.format(key, defines[key] and 1 or 0)])
             else:
-                command.extend(['-D', '%s=%s' % (key, defines[key])])
+                command.extend(['-D', '{}={}'.format(key, defines[key])])
 
         if mode == 'full':
             command.extend(['-E'])  # Don't use a saved environment
+
+        if strict_warnings:
+            command.extend(['-W'])  # Convert warnings to errors
 
         command.extend([sphinx_sourcedir, sphinx_builddir])
         self.setCommand(command)
@@ -326,15 +325,23 @@ class Sphinx(ShellCommand):
 
     def logConsumer(self):
         self.warnings = []
+        next_is_warning = False
+
         while True:
             stream, line = yield
             if line.startswith('build succeeded') or \
                line.startswith('no targets are out of date.'):
                 self.success = True
+            elif line.startswith('Warning, treated as error:'):
+                next_is_warning = True
             else:
-                for msg in self._msgs:
-                    if msg in line:
-                        self.warnings.append(line)
+                if next_is_warning:
+                    self.warnings.append(line)
+                    next_is_warning = False
+                else:
+                    for msg in self._msgs:
+                        if msg in line:
+                            self.warnings.append(line)
 
     def createSummary(self, log):
         if self.warnings:

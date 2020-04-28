@@ -13,11 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-from future.utils import text_type
-
 import html  # py2: via future
 import time
 
@@ -62,6 +57,7 @@ class Change:
     def _make_ch(cls, changeid, master, chdict):
         change = cls(None, None, None, _fromChdict=True)
         change.who = chdict['author']
+        change.committer = chdict['committer']
         change.comments = chdict['comments']
         change.revision = chdict['revision']
         change.branch = chdict['branch']
@@ -80,12 +76,12 @@ class Change:
         change.files = sorted(chdict['files'])
 
         change.properties = Properties()
-        for n, (v, s) in iteritems(chdict['properties']):
+        for n, (v, s) in chdict['properties'].items():
             change.properties.setProperty(n, v, s)
 
         return defer.succeed(change)
 
-    def __init__(self, who, files, comments, revision=None, when=None,
+    def __init__(self, who, files, comments, committer=None, revision=None, when=None,
                  branch=None, category=None, revlink='', properties=None,
                  repository='', codebase='', project='', _fromChdict=False):
         if properties is None:
@@ -95,12 +91,13 @@ class Change:
             return
 
         self.who = who
+        self.committer = committer
         self.comments = comments
 
         def none_or_unicode(x):
             if x is None:
                 return x
-            return text_type(x)
+            return str(x)
 
         self.revision = none_or_unicode(revision)
         now = util.now()
@@ -135,10 +132,10 @@ class Change:
             self.revlink = ""
 
     def __str__(self):
-        return (u"Change(revision=%r, who=%r, branch=%r, comments=%r, " +
-                u"when=%r, category=%r, project=%r, repository=%r, " +
-                u"codebase=%r)") % (
-            self.revision, self.who, self.branch, self.comments,
+        return ("Change(revision=%r, who=%r, committer=%r, branch=%r, comments=%r, " +
+                "when=%r, category=%r, project=%r, repository=%r, " +
+                "codebase=%r)") % (
+            self.revision, self.who, self.committer, self.branch, self.comments,
             self.when, self.category, self.project, self.repository,
             self.codebase)
 
@@ -164,17 +161,18 @@ class Change:
         data = ""
         data += "Files:\n"
         for f in self.files:
-            data += " %s\n" % f
+            data += " {}\n".format(f)
         if self.repository:
-            data += "On: %s\n" % self.repository
+            data += "On: {}\n".format(self.repository)
         if self.project:
-            data += "For: %s\n" % self.project
-        data += "At: %s\n" % self.getTime()
-        data += "Changed By: %s\n" % self.who
-        data += "Comments: %s" % self.comments
+            data += "For: {}\n".format(self.project)
+        data += "At: {}\n".format(self.getTime())
+        data += "Changed By: {}\n".format(self.who)
+        data += "Committed By: {}\n".format(self.committer)
+        data += "Comments: {}".format(self.comments)
         data += "Properties: \n"
         for prop in self.properties.asList():
-            data += "  %s: %s" % (prop[0], prop[1])
+            data += "  {}: {}".format(prop[0], prop[1])
         data += '\n\n'
         return data
 
@@ -189,6 +187,7 @@ class Change:
             'branch': self.branch,
             'category': self.category,
             'who': self.getShortAuthor(),
+            'committer': self.committer,
             'comments': self.comments,
             'revision': self.revision,
             'rev': self.revision,

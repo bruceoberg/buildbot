@@ -13,15 +13,13 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import re
 
 from twisted.python import log
 
 
-class LoggingMixin(object):
+class LoggingMixin:
 
     def setUpLogging(self):
         self._logEvents = []
@@ -40,13 +38,13 @@ class LoggingMixin(object):
 
     def assertLogged(self, regexp):
         if not self.logContainsMessage(regexp):
-            self.fail("%r not matched in log output.\n%s " % (
-                regexp, [log.textFromEventDict(e) for e in self._logEvents]))
+            lines = [log.textFromEventDict(e) for e in self._logEvents]
+            self.fail("{} not matched in log output.\n{} ".format(repr(regexp), lines))
 
     def assertNotLogged(self, regexp):
         if self.logContainsMessage(regexp):
-            self.fail("%r matched in log output.\n%s " % (
-                regexp, [log.textFromEventDict(e) for e in self._logEvents]))
+            lines = [log.textFromEventDict(e) for e in self._logEvents]
+            self.fail("{} matched in log output.\n{} ".format(repr(regexp), lines))
 
     def assertWasQuiet(self):
         self.assertEqual([

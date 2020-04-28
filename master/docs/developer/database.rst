@@ -3,10 +3,9 @@
 Database
 ========
 
-As of version 0.8.0, Buildbot has used a database as part of its storage
-backend.  This section describes the database connector classes, which allow
-other parts of Buildbot to access the database.  It also describes how to
-modify the database schema and the connector classes themselves.
+BuildBot stores most of its state in a database.
+This section describes the database connector classes, which allow other parts of Buildbot to access the database.
+It also describes how to modify the database schema and the connector classes themselves.
 
 
 Database Overview
@@ -50,7 +49,7 @@ Identifier
 
 .. _type-identifier:
 
-An "identifier" is a nonempty unicode string of limited length, containing only ASCII alphanumeric characters along with ``-`` (dash) and ``_`` (underscore), and not beginning with a digit
+An "identifier" is a nonempty unicode string of limited length, containing only UTF-8 alphanumeric characters along with ``-`` (dash) and ``_`` (underscore), and not beginning with a digit
 Wherever an identifier is used, the documentation will give the maximum length in characters.
 The function :py:func:`buildbot.util.identifiers.isIdentifier` is useful to verify a well-formed identifier.
 
@@ -775,6 +774,7 @@ changes
     * ``changeid`` (the ID of this change)
     * ``parent_changeids`` (list of ID; change's parents)
     * ``author`` (unicode; the author of the change)
+    * ``committer`` (unicode; the committer of the change)
     * ``files`` (list of unicode; source-code filenames changed)
     * ``comments`` (unicode; user comments)
     * ``is_dir`` (deprecated)
@@ -807,10 +807,12 @@ changes
 
         return the last changeID which matches the repository/project/codebase
 
-    .. py:method:: addChange(author=None, files=None, comments=None, is_dir=0, links=None, revision=None, when_timestamp=None, branch=None, category=None, revlink='', properties={}, repository='', project='', uid=None)
+    .. py:method:: addChange(author=None, committer=None, files=None, comments=None, is_dir=0, links=None, revision=None, when_timestamp=None, branch=None, category=None, revlink='', properties={}, repository='', project='', uid=None)
 
         :param author: the author of this change
         :type author: unicode string
+        :param committer: the committer of this change
+        :type committer: unicode string
         :param files: a list of filenames that were changed
         :type branch: list of unicode strings
         :param comments: user comments on the change
@@ -912,6 +914,13 @@ changes
 
         Get the "blame" list of changes for a build.
 
+    .. py:method:: getBuildsForChange(changeid)
+
+        :param changeid: ID of the change
+        :returns: list of buildDict via Deferred
+
+        Get builds related to a change
+
     .. py:method:: getChangeFromSSid(sourcestampid)
 
         :param sourcestampid: ID of the sourcestampid
@@ -936,7 +945,7 @@ changesources
 
     An instance of this class is available at ``master.db.changesources``.
 
-    Changesources are identified by their changesourceid, which can be objtained from :py:meth:`findChangeSourceId`.
+    Changesources are identified by their changesourceid, which can be obtained from :py:meth:`findChangeSourceId`.
 
     Changesources are represented by dictionaries with the following keys:
 
@@ -1005,7 +1014,7 @@ schedulers
 
     An instance of this class is available at ``master.db.schedulers``.
 
-    Schedulers are identified by their schedulerid, which can be objtained from :py:meth:`findSchedulerId`.
+    Schedulers are identified by their schedulerid, which can be obtained from :py:meth:`findSchedulerId`.
 
     Schedulers are represented by dictionaries with the following keys:
 
@@ -1798,7 +1807,7 @@ Next, modify :src:`master/buildbot/db/model.py` to represent the updated schema.
 Buildbot's automated tests perform a rudimentary comparison of an upgraded database with the model, but it is important to check the details - key length, nullability, and so on can sometimes be missed by the checks.
 If the schema and the upgrade scripts get out of sync, bizarre behavior can result.
 
-Also, adjust the fake database table definitions in :src:`master/buildbot/test/fake/fakedb.py` according to your changes.
+Also, adjust the fake database table definitions in :src:`master/buildbot/test/fakedb` according to your changes.
 
 Your upgrade script should have unit tests.  The classes in :src:`master/buildbot/test/util/migration.py` make this straightforward.
 Unit test scripts should be named e.g., :file:`test_db_migrate_versions_015_remove_bad_master_objectid.py`.
@@ -1911,7 +1920,7 @@ When you hit this problem, you will get error like the following:
 .. code-block:: none
 
     sqlalchemy.exc.OperationalError: (OperationalError) too many SQL variables
-    u'DELETE FROM scheduler_changes WHERE scheduler_changes.changeid IN (?, ?, ?, ......tons of ?? and IDs .... 9363, 9362, 9361)
+    u'DELETE FROM scheduler_changes WHERE scheduler_changes.changeid IN (?, ?, ?, ..., ?)
 
 You can use the method :py:meth:`doBatch` in order to write batching code in a consistent manner.
 

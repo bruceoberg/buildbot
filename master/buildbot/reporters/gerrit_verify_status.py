@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 from twisted.internet import defer
 from twisted.python import failure
@@ -63,7 +61,7 @@ class GerritVerifyStatusPush(http.HttpStatusPushBase):
                         verbose=False,
                         **kwargs):
         auth = yield self.renderSecrets(auth)
-        yield http.HttpStatusPushBase.reconfigService(self, **kwargs)
+        yield super().reconfigService(**kwargs)
 
         if baseURL.endswith('/'):
             baseURL = baseURL[:-1]
@@ -98,7 +96,8 @@ class GerritVerifyStatusPush(http.HttpStatusPushBase):
         https://gerrit.googlesource.com/plugins/verify-status/+/master/src/main/resources/Documentation/rest-api-changes.md
 
         :param change_id: The change_id for the change tested (can be in the long form e.g:
-            myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940 or in the short integer form).
+            myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940 or in the short
+            integer form).
         :param revision_id: the revision_id tested can be the patchset number or
             the commit id (short or long).
         :param name: The name of the job.

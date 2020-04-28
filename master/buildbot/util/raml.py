@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-
 import copy
 import json
 import os
@@ -48,10 +44,10 @@ def construct_mapping(loader, node):
 RamlLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
     construct_mapping)
-RamlLoader.add_constructor(u'!include', construct_include)
+RamlLoader.add_constructor('!include', construct_include)
 
 
-class RamlSpec(object):
+class RamlSpec:
 
     """
     This class loads the raml specification, and expose useful
@@ -80,7 +76,7 @@ class RamlSpec(object):
         if uriParameters is None:
             uriParameters = OrderedDict()
 
-        for k, v in iteritems(api):
+        for k, v in api.items():
             if k.startswith("/"):
                 ep = base + k
                 p = copy.deepcopy(uriParameters)
@@ -90,15 +86,25 @@ class RamlSpec(object):
                     endpoints[ep] = v
                 self.parse_endpoints(endpoints, ep, v, p)
             elif k in ['get', 'post']:
-                if 'is' in v:
-                    for _is in v['is']:
-                        if 'bbget' in _is:
+                if 'is' not in v:
+                    continue
+
+                for _is in v['is']:
+                    if not isinstance(_is, dict):
+                        raise Exception('Unexpected "is" target {}: {}'.format(type(_is), _is))
+
+                    if 'bbget' in _is:
+                        try:
                             v['eptype'] = _is['bbget']['bbtype']
-                            self.endpoints_by_type.setdefault(v['eptype'], {})
-                            self.endpoints_by_type[v['eptype']][base] = api
-                        if 'bbgetraw' in _is:
-                            self.rawendpoints.setdefault(base, {})
-                            self.rawendpoints[base] = api
+                        except TypeError:
+                            raise Exception('Unexpected "is" target {}'.format(_is['bbget']))
+
+                        self.endpoints_by_type.setdefault(v['eptype'], {})
+                        self.endpoints_by_type[v['eptype']][base] = api
+
+                    if 'bbgetraw' in _is:
+                        self.rawendpoints.setdefault(base, {})
+                        self.rawendpoints[base] = api
         return endpoints
 
     def reindent(self, s, indent):
@@ -114,7 +120,7 @@ class RamlSpec(object):
 
     def iter_actions(self, endpoint):
         ACTIONS_MAGIC = '/actions/'
-        for k, v in iteritems(endpoint):
+        for k, v in endpoint.items():
             if k.startswith(ACTIONS_MAGIC):
                 k = k[len(ACTIONS_MAGIC):]
                 v = v['post']

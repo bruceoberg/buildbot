@@ -13,22 +13,16 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 # See "Type Validation" in master/docs/developer/tests.rst
-from future.utils import integer_types
-from future.utils import iteritems
-from future.utils import text_type
-
 import datetime
 import json
 import re
 
 from buildbot import util
-from buildbot.util import bytes2NativeString
+from buildbot.util import bytes2unicode
 
 
-class Type(object):
+class Type:
 
     name = None
     doc = None
@@ -105,8 +99,7 @@ class Instance(Type):
 
     def validate(self, name, object):
         if not isinstance(object, self.types):
-            yield "%s (%r) is not a %s" % (
-                name, object, self.name or repr(self.types))
+            yield "{} ({}) is not a {}".format(name, repr(object), self.name or repr(self.types))
 
     def toRaml(self):
         return self.ramlType
@@ -115,7 +108,7 @@ class Instance(Type):
 class Integer(Instance):
 
     name = "integer"
-    types = integer_types
+    types = (int,)
     ramlType = "integer"
 
     def valueFromString(self, arg):
@@ -131,7 +124,7 @@ class DateTime(Instance):
 class String(Instance):
 
     name = "string"
-    types = (text_type,)
+    types = (str,)
     ramlType = "string"
 
     def valueFromString(self, arg):
@@ -162,11 +155,11 @@ class Boolean(Instance):
 class Identifier(Type):
 
     name = "identifier"
-    identRe = re.compile('^[a-zA-Z_-][a-zA-Z0-9_-]*$')
+    identRe = re.compile('^[a-zA-Z_-][a-zA-Z0-9._-]*$')
     ramlType = "string"
 
     def __init__(self, len=None, **kwargs):
-        Type.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.len = len
 
     def valueFromString(self, arg):
@@ -176,15 +169,14 @@ class Identifier(Type):
         return val
 
     def validate(self, name, object):
-        if not isinstance(object, text_type):
-            yield "%s - %r - is not a unicode string" % (name, object)
+        if not isinstance(object, str):
+            yield "{} - {} - is not a unicode string".format(name, repr(object))
         elif not self.identRe.match(object):
-            yield "%s - %r - is not an identifier" % (name, object)
-        elif len(object) < 1:
-            yield "%s - identifiers cannot be an empty string" % (name,)
+            yield "{} - {} - is not an identifier".format(name, repr(object))
+        elif not object:
+            yield "{} - identifiers cannot be an empty string".format(name)
         elif len(object) > self.len:
-            yield "%s - %r - is longer than %d characters" % (name, object,
-                                                              self.len)
+            yield "{} - {} - is longer than {} characters".format(name, repr(object), self.len)
 
     def toRaml(self):
         return {'type': self.ramlType,
@@ -201,16 +193,16 @@ class List(Type):
         return self.of.ramlname
 
     def __init__(self, of=None, **kwargs):
-        Type.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.of = of
 
     def validate(self, name, object):
         if not isinstance(object, list):  # we want a list, and NOT a subclass
-            yield "%s (%r) is not a %s" % (name, object, self.name)
+            yield "{} ({}) is not a {}".format(name, repr(object), self.name)
             return
 
         for idx, elt in enumerate(object):
-            for msg in self.of.validate("%s[%d]" % (name, idx), elt):
+            for msg in self.of.validate("{}[{}]".format(name, idx), elt):
                 yield msg
 
     def valueFromString(self, arg):
@@ -240,21 +232,21 @@ class SourcedProperties(Type):
 
     def validate(self, name, object):
         if not isinstance(object, dict):  # we want a dict, and NOT a subclass
-            yield "%s is not sourced properties (not a dict)" % (name,)
+            yield "{} is not sourced properties (not a dict)".format(name)
             return
-        for k, v in iteritems(object):
-            if not isinstance(k, text_type):
-                yield "%s property name %r is not unicode" % (name, k)
+        for k, v in object.items():
+            if not isinstance(k, str):
+                yield "{} property name {} is not unicode".format(name, repr(k))
             if not isinstance(v, tuple) or len(v) != 2:
-                yield "%s property value for '%s' is not a 2-tuple" % (name, k)
+                yield "{} property value for '{}' is not a 2-tuple".format(name, k)
                 return
             propval, propsrc = v
-            if not isinstance(propsrc, text_type):
-                yield "%s[%s] source %r is not unicode" % (name, k, propsrc)
+            if not isinstance(propsrc, str):
+                yield "{}[{}] source {} is not unicode".format(name, k, repr(propsrc))
             try:
-                json.loads(bytes2NativeString(propval))
+                json.loads(bytes2unicode(propval))
             except ValueError:
-                yield "%s[%r] value is not JSON-able" % (name, k)
+                yield "{}[{}] value is not JSON-able".format(name, repr(k))
 
     def toRaml(self):
         return {'type': "object",
@@ -280,25 +272,23 @@ class Dict(Type):
 
     def validate(self, name, object):
         if not isinstance(object, dict):
-            yield "%s (%r) is not a dictionary (got type %s)" \
-                % (name, object, type(object))
+            yield "{} ({}) is not a dictionary (got type {})".format(name, repr(object),
+                                                                     type(object))
             return
 
         gotNames = set(object.keys())
 
         unexpected = gotNames - self.keys
         if unexpected:
-            yield "%s has unexpected keys %s" % (name,
-                                                 ", ".join([repr(n) for n in unexpected]))
+            yield "{} has unexpected keys {}".format(name, ", ".join([repr(n) for n in unexpected]))
 
         missing = self.keys - gotNames
         if missing:
-            yield "%s is missing keys %s" % (name,
-                                             ", ".join([repr(n) for n in missing]))
+            yield "{} is missing keys {}".format(name, ", ".join([repr(n) for n in missing]))
 
         for k in gotNames & self.keys:
             f = self.contents[k]
-            for msg in f.validate("%s[%r]" % (name, k), object[k]):
+            for msg in f.validate("{}[{}]".format(name, repr(k)), object[k]):
                 yield msg
 
     def getSpec(self):
@@ -306,12 +296,12 @@ class Dict(Type):
                     fields=[dict(name=k,
                                  type=v.name,
                                  type_spec=v.getSpec())
-                            for k, v in iteritems(self.contents)
+                            for k, v in self.contents.items()
                             ])
 
     def toRaml(self):
         return {'type': "object",
-                'properties': dict([(maybeNoneOrList(k, v), v.ramlname) for k, v in self.contents.items()])}
+                'properties': {maybeNoneOrList(k, v): v.ramlname for k, v in self.contents.items()}}
 
 
 class JsonObject(Type):
@@ -320,15 +310,15 @@ class JsonObject(Type):
 
     def validate(self, name, object):
         if not isinstance(object, dict):
-            yield "%s (%r) is not a dictionary (got type %s)" \
-                % (name, object, type(object))
+            yield "{} ({}) is not a dictionary (got type {})".format(name, repr(object),
+                                                                     type(object))
             return
 
         # make sure JSON can represent it
         try:
             json.dumps(object)
         except Exception as e:
-            yield "%s is not JSON-able: %s" % (name, e)
+            yield "{} is not JSON-able: {}".format(name, e)
             return
 
     def toRaml(self):
@@ -348,7 +338,7 @@ class Entity(Type):
 
     def __init__(self, name):
         fields = {}
-        for k, v in iteritems(self.__class__.__dict__):
+        for k, v in self.__class__.__dict__.items():
             if isinstance(v, Type):
                 fields[k] = v
         self.fields = fields
@@ -358,25 +348,23 @@ class Entity(Type):
     def validate(self, name, object):
         # this uses isinstance, allowing dict subclasses as used by the DB API
         if not isinstance(object, dict):
-            yield "%s (%r) is not a dictionary (got type %s)" \
-                % (name, object, type(object))
+            yield "{} ({}) is not a dictionary (got type {})".format(name, repr(object),
+                                                                     type(object))
             return
 
         gotNames = set(object.keys())
 
         unexpected = gotNames - self.fieldNames
         if unexpected:
-            yield "%s has unexpected keys %s" % (name,
-                                                 ", ".join([repr(n) for n in unexpected]))
+            yield "{} has unexpected keys {}".format(name, ", ".join([repr(n) for n in unexpected]))
 
         missing = self.fieldNames - gotNames
         if missing:
-            yield "%s is missing keys %s" % (name,
-                                             ", ".join([repr(n) for n in missing]))
+            yield "{} is missing keys {}".format(name, ", ".join([repr(n) for n in missing]))
 
         for k in gotNames & self.fieldNames:
             f = self.fields[k]
-            for msg in f.validate("%s[%r]" % (name, k), object[k]):
+            for msg in f.validate("{}[{}]".format(name, repr(k)), object[k]):
                 yield msg
 
     def getSpec(self):
@@ -384,14 +372,11 @@ class Entity(Type):
                     fields=[dict(name=k,
                                  type=v.name,
                                  type_spec=v.getSpec())
-                            for k, v in iteritems(self.fields)
+                            for k, v in self.fields.items()
                             ])
 
     def toRaml(self):
         return {'type': "object",
-                'properties': dict([
-                    (
-                        maybeNoneOrList(k, v),
-                        {'type': v.ramlname, 'description': ''}
-                    )
-                    for k, v in iteritems(self.fields)])}
+                'properties': {
+                    maybeNoneOrList(k, v): {'type': v.ramlname, 'description': ''}
+                    for k, v in self.fields.items()}}

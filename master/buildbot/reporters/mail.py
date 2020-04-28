@@ -13,13 +13,9 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-from future.utils import string_types
-
 import re
 from email import charset
+from email.header import Header
 from email.message import Message
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -49,7 +45,7 @@ charset.add_charset(ENCODING, charset.SHORTEST, None, ENCODING)
 
 try:
     from twisted.mail.smtp import ESMTPSenderFactory
-    ESMTPSenderFactory = ESMTPSenderFactory  # for pyflakes
+    [ESMTPSenderFactory]  # for pyflakes
 except ImportError:
     ESMTPSenderFactory = None
 
@@ -64,8 +60,7 @@ except ImportError:
 #    Full Name <full.name@example.net>
 #    <full.name@example.net>
 VALID_EMAIL_ADDR = r"(?:\S+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+\.?)"
-VALID_EMAIL = re.compile(r"^(?:%s|(.+\s+)?<%s>\s*)$" %
-                         ((VALID_EMAIL_ADDR,) * 2))
+VALID_EMAIL = re.compile(r"^(?:{0}|(.+\s+)?<{0}>\s*)$".format(VALID_EMAIL_ADDR))
 VALID_EMAIL_ADDR = re.compile(VALID_EMAIL_ADDR)
 
 
@@ -98,7 +93,8 @@ class MailNotifier(NotifierBase):
                     addPatch=True, useTls=False, useSmtps=False,
                     smtpUser=None, smtpPassword=None, smtpPort=25,
                     schedulers=None, branches=None,
-                    watchedWorkers='all', messageFormatterMissingWorker=None):
+                    watchedWorkers='all', messageFormatterMissingWorker=None,
+                    dumpMailsToLog=False):
         if ESMTPSenderFactory is None:
             config.error("twisted-mail is not installed - cannot "
                          "send mail")
@@ -108,7 +104,8 @@ class MailNotifier(NotifierBase):
             buildSetSummary=buildSetSummary, messageFormatter=messageFormatter,
             subject=subject, addLogs=addLogs, addPatch=addPatch,
             schedulers=schedulers, branches=branches,
-            watchedWorkers=watchedWorkers, messageFormatterMissingWorker=messageFormatterMissingWorker)
+            watchedWorkers=watchedWorkers,
+            messageFormatterMissingWorker=messageFormatterMissingWorker)
 
         if extraRecipients is None:
             extraRecipients = []
@@ -122,7 +119,7 @@ class MailNotifier(NotifierBase):
                         "extra recipient {} is not a valid email".format(r))
 
         if lookup is not None:
-            if not isinstance(lookup, string_types):
+            if not isinstance(lookup, str):
                 assert interfaces.IEmailLookup.providedBy(lookup)
 
         if extraHeaders:
@@ -142,14 +139,16 @@ class MailNotifier(NotifierBase):
                         addPatch=True, useTls=False, useSmtps=False,
                         smtpUser=None, smtpPassword=None, smtpPort=25,
                         schedulers=None, branches=None,
-                        watchedWorkers='all', messageFormatterMissingWorker=None):
+                        watchedWorkers='all', messageFormatterMissingWorker=None,
+                        dumpMailsToLog=False):
 
         super(MailNotifier, self).reconfigService(
             mode=mode, tags=tags, builders=builders,
             buildSetSummary=buildSetSummary, messageFormatter=messageFormatter,
             subject=subject, addLogs=addLogs, addPatch=addPatch,
             schedulers=schedulers, branches=branches,
-            watchedWorkers=watchedWorkers, messageFormatterMissingWorker=messageFormatterMissingWorker)
+            watchedWorkers=watchedWorkers,
+            messageFormatterMissingWorker=messageFormatterMissingWorker)
         if extraRecipients is None:
             extraRecipients = []
         self.extraRecipients = extraRecipients
@@ -157,7 +156,7 @@ class MailNotifier(NotifierBase):
         self.fromaddr = fromaddr
         self.relayhost = relayhost
         if lookup is not None:
-            if isinstance(lookup, string_types):
+            if isinstance(lookup, str):
                 lookup = Domain(str(lookup))
         self.lookup = lookup
         self.extraHeaders = extraHeaders
@@ -166,6 +165,7 @@ class MailNotifier(NotifierBase):
         self.smtpUser = smtpUser
         self.smtpPassword = smtpPassword
         self.smtpPort = smtpPort
+        self.dumpMailsToLog = dumpMailsToLog
 
     def patch_to_attachment(self, patch, index):
         # patches are specifically converted to unicode before entering the db
@@ -236,19 +236,19 @@ class MailNotifier(NotifierBase):
         # interpolation if only one build was given
         if self.extraHeaders:
             extraHeaders = self.extraHeaders
-            if len(builds) == 1:
+            if builds is not None and len(builds) == 1:
                 props = Properties.fromDict(builds[0]['properties'])
                 props.master = self.master
                 extraHeaders = yield props.render(extraHeaders)
 
-            for k, v in iteritems(extraHeaders):
+            for k, v in extraHeaders.items():
                 if k in m:
                     twlog.msg("Warning: Got header " + k +
                               " in self.extraHeaders "
                               "but it already exists in the Message - "
                               "not adding it.")
                 m[k] = v
-        defer.returnValue(m)
+        return m
 
     @defer.inlineCallbacks
     def sendMessage(self, body, subject=None, type='plain', builderName=None,
@@ -301,7 +301,13 @@ class MailNotifier(NotifierBase):
                 else:
                     twlog.msg("INVALID EMAIL: {}".format(r))
 
-        defer.returnValue(recipients)
+        return recipients
+
+    def formatAddress(self, addr):
+        r = parseaddr(addr)
+        if not r[0]:
+            return r[1]
+        return "\"{}\" <{}>".format(Header(r[0], 'utf-8').encode(), r[1])
 
     def processRecipients(self, blamelist, m):
         to_recipients = set(blamelist)
@@ -315,15 +321,17 @@ class MailNotifier(NotifierBase):
         else:
             to_recipients.update(self.extraRecipients)
 
-        m['To'] = ", ".join(sorted(to_recipients))
+        m['To'] = ", ".join([self.formatAddress(addr) for addr in sorted(to_recipients)])
         if cc_recipients:
-            m['CC'] = ", ".join(sorted(cc_recipients))
+            m['CC'] = ", ".join([self.formatAddress(addr) for addr in sorted(cc_recipients)])
 
         return list(to_recipients | cc_recipients)
 
     def sendMail(self, m, recipients):
         s = m.as_string()
         twlog.msg("sending mail ({} bytes) to".format(len(s)), recipients)
+        if self.dumpMailsToLog:  # pragma: no cover
+            twlog.msg("mail data:\n{0}".format(s))
 
         result = defer.Deferred()
 

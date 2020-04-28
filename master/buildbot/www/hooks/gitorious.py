@@ -15,8 +15,6 @@
 #
 # note: this file is based on github.py
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import json
 import re
@@ -39,7 +37,7 @@ class GitoriousHandler(BaseHookHandler):
         project = payload['project']['name']
 
         changes = self.process_change(payload, user, repo, repo_url, project)
-        log.msg("Received %s changes from gitorious" % len(changes))
+        log.msg("Received {} changes from gitorious".format(len(changes)))
         return (changes, 'git')
 
     def process_change(self, payload, user, repo, repo_url, project):
@@ -48,7 +46,7 @@ class GitoriousHandler(BaseHookHandler):
 
         branch = payload['ref']
         if re.match(r"^0*$", newrev):
-            log.msg("Branch `%s' deleted, ignoring" % branch)
+            log.msg("Branch `{}' deleted, ignoring".format(branch))
             return []
         else:
             for commit in payload['commits']:
@@ -62,10 +60,9 @@ class GitoriousHandler(BaseHookHandler):
                 #     files.extend(commit['removed'])
                 when_timestamp = dateparse(commit['timestamp'])
 
-                log.msg("New revision: %s" % commit['id'][:8])
+                log.msg("New revision: {}".format(commit['id'][:8]))
                 changes.append({
-                    'author': '%s <%s>' % (commit['author']['name'],
-                                           commit['author']['email']),
+                    'author': '{} <{}>'.format(commit['author']['name'], commit['author']['email']),
                     'files': files,
                     'comments': commit['message'],
                     'revision': commit['id'],

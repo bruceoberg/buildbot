@@ -13,18 +13,18 @@
 #
 # Copyright Buildbot Team Members
 
-import sys
+import os
+import unittest
+from builtins import int
 
 from twisted.python import util
-from builtins import int
-from future.utils import PY3
 
 
 def onlyOnce(fn):
     'Set up FN to only run once within an interpreter instance'
     def wrap(*args, **kwargs):
         if hasattr(fn, 'called'):
-            return
+            return None
         fn.called = 1
         return fn(*args, **kwargs)
     util.mergeFunctionMetadata(fn, wrap)
@@ -37,24 +37,7 @@ def onlyOnce(fn):
 
 
 @onlyOnce
-def patch_python14653():
-    # this bug was fixed in Python 2.7.4: http://bugs.python.org/issue14653
-    if sys.version_info[:3] < (2, 7, 4):
-        from buildbot.monkeypatches import python14653
-        python14653.patch()
-
-
-@onlyOnce
-def patch_twisted9127():
-    if PY3:
-        from buildbot.monkeypatches import twisted9127
-        twisted9127.patch()
-
-
-@onlyOnce
 def patch_testcase_timeout():
-    import unittest
-    import os
     # any test that should take more than 5 second should be annotated so.
     unittest.TestCase.timeout = 5
 
@@ -75,7 +58,7 @@ def patch_mysqlclient_warnings():
     try:
         from _mysql_exceptions import Warning
         # MySQLdb.compat is only present in mysqlclient
-        import MySQLdb.compat  # noqa pylint: disable=unused-import
+        import MySQLdb.compat  # noqa pylint: disable=unused-import,import-outside-toplevel
     except ImportError:
         return
     # workaround for https://twistedmatrix.com/trac/ticket/9005
@@ -127,6 +110,3 @@ def patch_all(for_tests=False):
         patch_mysqlclient_warnings()
         patch_config_for_unit_tests()
         patch_unittest_testcase()
-
-    patch_python14653()
-    patch_twisted9127()

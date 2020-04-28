@@ -13,12 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-from future.utils import text_type
-
 import os
 import re
 import sys
@@ -95,7 +89,7 @@ golden_1_12_regex = [
 class _SubprocessProtocol(protocol.ProcessProtocol):
 
     def __init__(self, input, deferred):
-        if isinstance(input, text_type):
+        if isinstance(input, str):
             input = input.encode('utf-8')
         self.input = input
         self.deferred = deferred
@@ -128,8 +122,7 @@ class TestBuildbotCvsMail(unittest.TestCase):
     buildbot_cvs_mail_path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), '../../../contrib/buildbot_cvs_mail.py'))
     if not os.path.exists(buildbot_cvs_mail_path):
-        skip = ("'%s' does not exist (normal unless run from git)"
-                % buildbot_cvs_mail_path)
+        skip = ("'{}' does not exist (normal unless run from git)".format(buildbot_cvs_mail_path))
 
     def assertOutputOk(self, result, regexList):
         "assert that the output from getProcessOutputAndValueWithInput matches expectations"

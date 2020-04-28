@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import json
 import os
@@ -36,7 +34,7 @@ class IndexResource(resource.Resource):
     needsReconfig = True
 
     def __init__(self, master, staticdir):
-        resource.Resource.__init__(self, master)
+        super().__init__(master)
         loader = jinja2.FileSystemLoader(staticdir)
         self.jinja = jinja2.Environment(
             loader=loader, undefined=jinja2.StrictUndefined)
@@ -63,11 +61,10 @@ class IndexResource(resource.Resource):
         res = {}
         allowed_ext = [".html"]
         try:
-            import pyjade
+            import pyjade   # pylint: disable=import-outside-toplevel
             allowed_ext.append(".jade")
         except ImportError:  # pragma: no cover
-            log.msg("pyjade not installed. Ignoring .jade files from %s" %
-                    (template_dir,))
+            log.msg("pyjade not installed. Ignoring .jade files from {}".format(template_dir))
             pyjade = None
         for root, dirs, files in os.walk(template_dir):
             if root == template_dir:
@@ -93,15 +90,15 @@ class IndexResource(resource.Resource):
                         compiler = pyjade.ext.html.Compiler(
                             block, pretty=False)
                         html = compiler.compile()
-                res[template_name % (basename,)] = json.dumps(html)
-            pass
+                res[template_name % (basename,)] = html
+
         return res
 
     @staticmethod
     def getEnvironmentVersions():
-        import sys
-        import twisted
-        from buildbot import version as bbversion
+        import sys   # pylint: disable=import-outside-toplevel
+        import twisted   # pylint: disable=import-outside-toplevel
+        from buildbot import version as bbversion   # pylint: disable=import-outside-toplevel
 
         pyversion = '.'.join(map(str, sys.version_info[:3]))
 
@@ -159,4 +156,4 @@ class IndexResource(resource.Resource):
         tpl = tpl.render(configjson=json.dumps(config, default=toJson),
                          custom_templates=self.custom_templates,
                          config=self.config)
-        defer.returnValue(unicode2bytes(tpl, encoding='ascii'))
+        return unicode2bytes(tpl, encoding='ascii')

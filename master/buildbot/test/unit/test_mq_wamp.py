@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.builtins import range
-
 import json
 import os
 import textwrap
@@ -29,10 +25,11 @@ from twisted.trial import unittest
 
 from buildbot.mq import wamp
 from buildbot.test.fake import fakemaster
+from buildbot.test.util.misc import TestReactorMixin
 from buildbot.wamp import connector
 
 
-class FakeEventDetails(object):
+class FakeEventDetails:
     def __init__(self, topic):
         self.topic = topic
 
@@ -47,7 +44,7 @@ class ComparableSubscribeOptions(SubscribeOptions):
     __repr__ = SubscribeOptions.__str__
 
 
-class FakeWampConnector(object):
+class FakeWampConnector:
     # a fake wamp connector with only one queue
 
     def topic_match(self, topic):
@@ -55,7 +52,7 @@ class FakeWampConnector(object):
         owntopic = self.topic.split(".")
         if len(topic) != len(owntopic):
             return False
-        for i in range(len(topic)):
+        for i, topic_item in enumerate(topic):
             if owntopic[i] != "" and topic[i] != owntopic[i]:
                 return False
         return True
@@ -101,18 +98,26 @@ class TopicMatch(unittest.TestCase):
             self.assertFalse(w.topic_match(j))
 
 
-class WampMQ(unittest.TestCase):
+class WampMQ(TestReactorMixin, unittest.TestCase):
 
     """
         Stimulate the code with a fake wamp router:
         A router which only accepts one subscriber on one topic
     """
 
+    @defer.inlineCallbacks
     def setUp(self):
-        self.master = fakemaster.make_master()
+        self.setUpTestReactor()
+        self.master = fakemaster.make_master(self)
         self.master.wamp = FakeWampConnector()
         self.mq = wamp.WampMQ()
-        self.mq.setServiceParent(self.master)
+        yield self.mq.setServiceParent(self.master)
+        yield self.mq.startService()
+
+    @defer.inlineCallbacks
+    def tearDown(self):
+        if self.mq.running:
+            yield self.mq.stopService()
 
     @defer.inlineCallbacks
     def test_startConsuming_basic(self):
@@ -120,16 +125,16 @@ class WampMQ(unittest.TestCase):
         yield self.mq.startConsuming(None, ('a', 'b'))
         options = ComparableSubscribeOptions(details_arg='details')
         self.master.wamp.subscribe.assert_called_with(
-            mock.ANY, u'org.buildbot.mq.a.b', options=options)
+            mock.ANY, 'org.buildbot.mq.a.b', options=options)
 
     @defer.inlineCallbacks
     def test_startConsuming_wildcard(self):
         self.master.wamp.subscribe = mock.Mock()
         yield self.mq.startConsuming(None, ('a', None))
         options = ComparableSubscribeOptions(
-            match=u"wildcard", details_arg='details')
+            match="wildcard", details_arg='details')
         self.master.wamp.subscribe.assert_called_with(
-            mock.ANY, u'org.buildbot.mq.a.', options=options)
+            mock.ANY, 'org.buildbot.mq.a.', options=options)
 
     @defer.inlineCallbacks
     def test_forward_data(self):
@@ -140,7 +145,7 @@ class WampMQ(unittest.TestCase):
         # calling produce should eventually call the callback with decoding of
         # topic
         callback.assert_called_with(('a', 'b'), 'foo')
-        self.assertEqual(self.master.wamp.last_data, u'foo')
+        self.assertEqual(self.master.wamp.last_data, 'foo')
 
     @defer.inlineCallbacks
     def test_forward_data_wildcard(self):
@@ -151,14 +156,42 @@ class WampMQ(unittest.TestCase):
         # calling produce should eventually call the callback with decoding of
         # topic
         callback.assert_called_with(('a', 'b'), 'foo')
-        self.assertEqual(self.master.wamp.last_data, u'foo')
+        self.assertEqual(self.master.wamp.last_data, 'foo')
+
+    @defer.inlineCallbacks
+    def test_waits_for_called_callback(self):
+        def callback(_, __):
+            return defer.succeed(None)
+
+        yield self.mq.startConsuming(callback, ('a', None))
+        yield self.mq._produce(('a', 'b'), 'foo')
+        self.assertEqual(self.master.wamp.last_data, 'foo')
+
+        d = self.mq.stopService()
+        self.assertTrue(d.called)
+
+    @defer.inlineCallbacks
+    def test_waits_for_non_called_callback(self):
+        d1 = defer.Deferred()
+
+        def callback(_, __):
+            return d1
+
+        yield self.mq.startConsuming(callback, ('a', None))
+        yield self.mq._produce(('a', 'b'), 'foo')
+        self.assertEqual(self.master.wamp.last_data, 'foo')
+
+        d = self.mq.stopService()
+        self.assertFalse(d.called)
+        d1.callback(None)
+        self.assertTrue(d.called)
 
 
-class FakeConfig(object):
+class FakeConfig:
     mq = dict(type='wamp', router_url="wss://foo", realm="realm1")
 
 
-class WampMQReal(unittest.TestCase):
+class WampMQReal(TestReactorMixin, unittest.TestCase):
 
     """
         Tests a little bit more painful to run, but which involve real communication with
@@ -176,9 +209,10 @@ class WampMQReal(unittest.TestCase):
 
     @defer.inlineCallbacks
     def setUp(self):
+        self.setUpTestReactor()
         if "WAMP_ROUTER_URL" not in os.environ:
             raise unittest.SkipTest(self.HOW_TO_RUN)
-        self.master = fakemaster.make_master()
+        self.master = fakemaster.make_master(self)
         self.mq = wamp.WampMQ()
         yield self.mq.setServiceParent(self.master)
         self.connector = self.master.wamp = connector.WampConnector()

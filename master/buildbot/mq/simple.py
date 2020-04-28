@@ -13,8 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import pprint
 
@@ -29,26 +27,25 @@ from buildbot.util import tuplematch
 class SimpleMQ(service.ReconfigurableServiceMixin, base.MQBase):
 
     def __init__(self):
-        base.MQBase.__init__(self)
+        super().__init__()
         self.qrefs = []
         self.persistent_qrefs = {}
         self.debug = False
 
     def reconfigServiceWithBuildbotConfig(self, new_config):
         self.debug = new_config.mq.get('debug', False)
-        return service.ReconfigurableServiceMixin.reconfigServiceWithBuildbotConfig(self,
-                                                                                    new_config)
+        return super().reconfigServiceWithBuildbotConfig(new_config)
 
     def produce(self, routingKey, data):
         if self.debug:
-            log.msg("MSG: %s\n%s" % (routingKey, pprint.pformat(data)))
+            log.msg("MSG: {}\n{}".format(routingKey, pprint.pformat(data)))
         for qref in self.qrefs:
             if tuplematch.matchTuple(routingKey, qref.filter):
-                qref.invoke(routingKey, data)
+                self.invokeQref(qref, routingKey, data)
 
     def startConsuming(self, callback, filter, persistent_name=None):
         if any(not isinstance(k, str) and k is not None for k in filter):
-            raise AssertionError("%s is not a filter" % (filter,))
+            raise AssertionError("{} is not a filter".format(filter))
         if persistent_name:
             if persistent_name in self.persistent_qrefs:
                 qref = self.persistent_qrefs[persistent_name]
@@ -68,7 +65,7 @@ class QueueRef(base.QueueRef):
     __slots__ = ['mq', 'filter']
 
     def __init__(self, mq, callback, filter):
-        base.QueueRef.__init__(self, callback)
+        super().__init__(callback)
         self.mq = mq
         self.filter = filter
 
@@ -85,7 +82,7 @@ class PersistentQueueRef(QueueRef):
     __slots__ = ['active', 'queue']
 
     def __init__(self, mq, callback, filter):
-        QueueRef.__init__(self, mq, callback, filter)
+        super().__init__(mq, callback, filter)
         self.queue = []
 
     def startConsuming(self, callback):

@@ -13,12 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from future.builtins import range
-from future.utils import text_type
-
 import textwrap
 
 from twisted.internet import defer
@@ -26,7 +20,7 @@ from twisted.trial import unittest
 
 from buildbot.data import logchunks
 from buildbot.data import resultspec
-from buildbot.test.fake import fakedb
+from buildbot.test import fakedb
 from buildbot.test.util import endpoint
 
 
@@ -90,7 +84,7 @@ class LogChunkEndpointBase(endpoint.EndpointMixin, unittest.TestCase):
                          {'logid': logid, 'firstline': 0, 'content': expContent})
 
         # line-by-line
-        for i in range(len(expLines)):
+        for i, expLine in enumerate(expLines):
             logchunk = yield self.callGet(path,
                                           resultSpec=resultspec.ResultSpec(offset=i, limit=1))
             self.validateData(logchunk)
@@ -100,8 +94,8 @@ class LogChunkEndpointBase(endpoint.EndpointMixin, unittest.TestCase):
         # half and half
         mid = int(len(expLines) / 2)
         for f, length in (0, mid), (mid, len(expLines) - 1):
-            logchunk = yield self.callGet(path,
-                                          resultSpec=resultspec.ResultSpec(offset=f, limit=length - f + 1))
+            result_spec = resultspec.ResultSpec(offset=f, limit=length - f + 1)
+            logchunk = yield self.callGet(path, resultSpec=result_spec)
             self.validateData(logchunk)
             expContent = '\n'.join(expLines[f:length + 1]) + '\n'
             self.assertEqual(logchunk,
@@ -109,8 +103,8 @@ class LogChunkEndpointBase(endpoint.EndpointMixin, unittest.TestCase):
 
         # truncated at EOF
         f, length = len(expLines) - 2, len(expLines) + 10
-        logchunk = yield self.callGet(path,
-                                      resultSpec=resultspec.ResultSpec(offset=f, limit=length - f + 1))
+        result_spec = resultspec.ResultSpec(offset=f, limit=length - f + 1)
+        logchunk = yield self.callGet(path, resultSpec=result_spec)
         self.validateData(logchunk)
         expContent = '\n'.join(expLines[-2:]) + '\n'
         self.assertEqual(logchunk,
@@ -184,9 +178,9 @@ class RawLogChunkEndpoint(LogChunkEndpointBase):
     endpointname = "raw"
 
     def validateData(self, data):
-        self.assertIsInstance(data['raw'], text_type)
-        self.assertIsInstance(data['mime-type'], text_type)
-        self.assertIsInstance(data['filename'], text_type)
+        self.assertIsInstance(data['raw'], str)
+        self.assertIsInstance(data['mime-type'], str)
+        self.assertIsInstance(data['filename'], str)
 
     @defer.inlineCallbacks
     def do_test_chunks(self, path, logid, expLines):
@@ -194,11 +188,11 @@ class RawLogChunkEndpoint(LogChunkEndpointBase):
         logchunk = yield self.callGet(path)
         self.validateData(logchunk)
         if logid == 60:
-            expContent = u'\n'.join([line[1:] for line in expLines])
+            expContent = '\n'.join([line[1:] for line in expLines])
             expFilename = "stdio"
         else:
-            expContent = u'\n'.join(expLines) + '\n'
+            expContent = '\n'.join(expLines) + '\n'
             expFilename = "errors"
 
         self.assertEqual(logchunk,
-                         {'filename': expFilename, 'mime-type': u"text/plain", 'raw': expContent})
+                         {'filename': expFilename, 'mime-type': "text/plain", 'raw': expContent})

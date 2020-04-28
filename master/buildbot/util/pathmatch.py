@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-
 import re
 
 _ident_re = re.compile('^[a-zA-Z_-][.a-zA-Z0-9_-]*$')
@@ -28,14 +24,14 @@ def ident(x):
     raise TypeError
 
 
-class Matcher(object):
+class Matcher:
 
     def __init__(self):
         self._patterns = {}
         self._dirty = True
 
     def __setitem__(self, path, value):
-        assert path not in self._patterns, "duplicate path %s" % (path,)
+        assert path not in self._patterns, "duplicate path {}".format(path)
         self._patterns[path] = value
         self._dirty = True
 
@@ -61,7 +57,7 @@ class Matcher(object):
                             type_fn = self.type_fns[type_flag]
                         except Exception:
                             assert type_flag in self.type_fns, \
-                                "no such type flag %s" % type_flag
+                                    "no such type flag {}".format(type_flag)
                         try:
                             path_elt = type_fn(path_elt)
                         except Exception:
@@ -77,7 +73,7 @@ class Matcher(object):
             raise KeyError('No match for %r' % (path,))
 
     def iterPatterns(self):
-        return list(iteritems(self._patterns))
+        return list(self._patterns.items())
 
     def _compile(self):
         self._by_length = {}

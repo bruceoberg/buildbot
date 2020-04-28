@@ -14,8 +14,6 @@
 # Portions Copyright Buildbot Team Members
 # Portions Copyright 2013 Cray Inc.
 
-from __future__ import absolute_import
-from __future__ import print_function
 
 import uuid
 
@@ -84,7 +82,7 @@ class Item():
 class Image(Item):
 
     def __init__(self, *args, **kwargs):
-        Item.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         setattr(self, 'OS-EXT-IMG-SIZE:size', self.size)
 
 
@@ -168,7 +166,8 @@ class PasswordLoader():
 
 class PasswordAuth():
 
-    def __init__(self, auth_url, password, project_name, username, user_domain_name=None, project_domain_name=None):
+    def __init__(self, auth_url, password, project_name, username, user_domain_name=None,
+                 project_domain_name=None):
         self.auth_url = auth_url
         self.password = password
         self.project_name = project_name

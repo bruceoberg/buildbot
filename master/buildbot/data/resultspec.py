@@ -13,10 +13,6 @@
 #
 # Copyright Buildbot Team Members
 
-from __future__ import absolute_import
-from __future__ import print_function
-from future.utils import iteritems
-
 import sqlalchemy as sa
 
 from twisted.python import log
@@ -24,7 +20,7 @@ from twisted.python import log
 from buildbot.data import base
 
 
-class FieldBase(object):
+class FieldBase:
 
     """
     This class implements a basic behavior
@@ -95,7 +91,8 @@ class FieldBase(object):
         return (d for d in data if f(d[fld], v))
 
     def __repr__(self):
-        return "resultspec.{}('{}','{}',{})".format(self.__class__.__name__, self.field, self.op, self.values)
+        return "resultspec.{}('{}','{}',{})".format(self.__class__.__name__, self.field, self.op,
+                                                    self.values)
 
     def __eq__(self, b):
         for i in self.__slots__:
@@ -123,7 +120,7 @@ class Filter(FieldBase):
     """
 
 
-class NoneComparator(object):
+class NoneComparator:
     """
     Object which wraps 'None' when doing comparisons in sorted().
     '> None' and '< None' are not supported
@@ -157,7 +154,7 @@ class NoneComparator(object):
         return self.value < other.value
 
 
-class ReverseComparator(object):
+class ReverseComparator:
     """
     Object which swaps '<' and '>' so
     instead of a < b, it does b < a,
@@ -180,7 +177,7 @@ class ReverseComparator(object):
         return other.value > self.value
 
 
-class ResultSpec(object):
+class ResultSpec:
 
     __slots__ = ['filters', 'fields', 'properties',
                  'order', 'limit', 'offset', 'fieldMapping']
@@ -224,6 +221,7 @@ class ResultSpec(object):
             if f.field == field and f.op == op:
                 self.filters.remove(f)
                 return f.values
+        return None
 
     def popOneFilter(self, field, op):
         v = self.popFilter(field, op)
@@ -236,11 +234,13 @@ class ResultSpec(object):
         neVals = self.popFilter(field, 'ne')
         if neVals and len(neVals) == 1:
             return not neVals[0]
+        return None
 
     def popStringFilter(self, field):
         eqVals = self.popFilter(field, 'eq')
         if eqVals and len(eqVals) == 1:
             return eqVals[0]
+        return None
 
     def popIntegerFilter(self, field):
         eqVals = self.popFilter(field, 'eq')
@@ -250,6 +250,7 @@ class ResultSpec(object):
             except ValueError:
                 raise ValueError("Filter value for {} should be integer, but got: {}".format(
                     field, eqVals[0]))
+        return None
 
     def removePagination(self):
         self.limit = self.offset = None
@@ -318,7 +319,8 @@ class ResultSpec(object):
         # we cannot limit in sql if there is missing filtering or ordering
         if unmatched_filters or unmatched_order:
             if self.offset is not None or self.limit is not None:
-                log.msg("Warning: limited data api query is not backed by db because of following filters",
+                log.msg("Warning: limited data api query is not backed by db "
+                        "because of following filters",
                         unmatched_filters, unmatched_order)
             self.filters = unmatched_filters
             self.order = tuple(unmatched_order)
@@ -357,7 +359,7 @@ class ResultSpec(object):
             fields = set(self.fields)
 
             def includeFields(d):
-                return dict((k, v) for k, v in iteritems(d)
+                return dict((k, v) for k, v in d.items()
                             if k in fields)
             applyFields = includeFields
         else:
