@@ -115,12 +115,12 @@ class Git(Source, GitStepMixin):
             bbconfig.error("Git: getDescription must be a boolean or a dict.")
 
     @defer.inlineCallbacks
-    def startVC(self, branch, revision, patch):
+    def run_vc(self, branch, revision, patch):
         self.branch = branch or 'HEAD'
         self.revision = revision
 
         self.method = self._getMethod()
-        self.stdio_log = self.addLogForRemoteCommands("stdio")
+        self.stdio_log = yield self.addLogForRemoteCommands("stdio")
 
         try:
             gitInstalled = yield self.checkFeatureSupport()
@@ -136,14 +136,14 @@ class Git(Source, GitStepMixin):
             yield self._downloadSshPrivateKeyIfNeeded()
             yield self._getAttrGroupMember('mode', self.mode)()
             if patch:
-                yield self.patch(None, patch=patch)
+                yield self.patch(patch)
             yield self.parseGotRevision()
             res = yield self.parseCommitDescription()
             yield self._removeSshPrivateKeyIfNeeded()
-            yield self.finish(res)
-        except Exception as e:
+            return res
+        except Exception:
             yield self._removeSshPrivateKeyIfNeeded()
-            yield self.failed(e)
+            raise
 
     @defer.inlineCallbacks
     def mode_full(self):
@@ -256,12 +256,6 @@ class Git(Source, GitStepMixin):
             return RC_SUCCESS
         finally:
             self.workdir = old_workdir
-
-    @defer.inlineCallbacks
-    def finish(self, res):
-        self.setStatus(self.cmd, res)
-        log.msg("Closing log, sending result of the command {} ".format(self.cmd))
-        yield self.finished(res)
 
     @defer.inlineCallbacks
     def parseGotRevision(self, _=None):
@@ -749,7 +743,7 @@ class GitCommit(buildstep.BuildStep, GitStepMixin, CompositeStepMixin):
         rc = yield self._dovccmd(cmd, abandonOnFailure=False)
 
         if rc != RC_SUCCESS:
-            self.stdio_log.addStderr("You are in detached HEAD")
+            yield self.stdio_log.addStderr("You are in detached HEAD")
             raise buildstep.BuildStepFailed
 
     @defer.inlineCallbacks

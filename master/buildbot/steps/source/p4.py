@@ -23,6 +23,7 @@ from buildbot import config
 from buildbot import interfaces
 from buildbot.interfaces import WorkerTooOldError
 from buildbot.process import buildstep
+from buildbot.process import results
 from buildbot.process.properties import Interpolate
 from buildbot.steps.source import Source
 
@@ -59,6 +60,7 @@ class P4(Source):
                  p4extra_args=None,
                  p4bin='p4',
                  use_tickets=False,
+                 stream=False,
                  **kwargs):
         self.method = method
         self.mode = mode
@@ -76,6 +78,7 @@ class P4(Source):
         self.p4client_spec_options = p4client_spec_options
         self.p4extra_args = p4extra_args
         self.use_tickets = use_tickets
+        self.stream = stream
 
         super().__init__(**kwargs)
 
@@ -95,6 +98,9 @@ class P4(Source):
             config.error(
                 "p4viewspec must not be a string, and should be a sequence of 2 element sequences")
 
+        if not interfaces.IRenderable.providedBy(p4base) and p4base and not p4base.startswith('/'):
+            config.error('p4base should start with // [p4base = {}]'.format(p4base))
+
         if not interfaces.IRenderable.providedBy(p4base) and p4base and p4base.endswith('/'):
             config.error('p4base should not end with a trailing / [p4base = {}]'.format(p4base))
 
@@ -106,24 +112,29 @@ class P4(Source):
             config.error(
                 'If you specify either p4branch or p4extra_views you must also specify p4base')
 
+        if stream:
+            if (p4extra_views or p4viewspec):
+                config.error('You can\'t use p4extra_views not p4viewspec with stream')
+            if not p4base or not p4branch:
+                config.error('You must specify both p4base and p4branch when using stream')
+            if " " in p4base or " " in p4branch:
+                config.error('p4base and p4branch must not contain any whitespace')
+
         if self.p4client_spec_options is None:
             self.p4client_spec_options = ''
 
-    def startVC(self, branch, revision, patch):
+    @defer.inlineCallbacks
+    def run_vc(self, branch, revision, patch):
         if debug_logging:
-            log.msg('in startVC')
+            log.msg('in run_vc')
 
         self.revision = revision
         self.method = self._getMethod()
-        self.stdio_log = self.addLogForRemoteCommands("stdio")
+        self.stdio_log = yield self.addLogForRemoteCommands("stdio")
 
-        d = self.checkP4()
-
-        @d.addCallback
-        def checkInstall(p4Installed):
-            if not p4Installed:
-                raise WorkerTooOldError("p4 is not installed on worker")
-            return 0
+        installed = yield self.checkP4()
+        if not installed:
+            raise WorkerTooOldError("p4 is not installed on worker")
 
         # Try to obfuscate the password when used as an argument to commands.
         if self.p4passwd is not None:
@@ -135,17 +146,14 @@ class P4(Source):
                         "p4 password will be logged")
 
         if self.use_tickets and self.p4passwd:
-            d.addCallback(self._acquireTicket)
+            yield self._acquireTicket()
 
-        d.addCallback(self._getAttrGroupMember('mode', self.mode))
-
-        d.addCallback(self.parseGotRevision)
-        d.addCallback(self.finish)
-        d.addErrback(self.failed)
-        return d
+        yield self._getAttrGroupMember('mode', self.mode)()
+        yield self.parseGotRevision()
+        return results.SUCCESS
 
     @defer.inlineCallbacks
-    def mode_full(self, _):
+    def mode_full(self):
         if debug_logging:
             log.msg("P4:full()..")
 
@@ -175,7 +183,7 @@ class P4(Source):
             log.msg("P4: full() sync done.")
 
     @defer.inlineCallbacks
-    def mode_incremental(self, _):
+    def mode_incremental(self):
         if debug_logging:
             log.msg("P4:incremental()")
 
@@ -192,16 +200,6 @@ class P4(Source):
             log.msg(
                 "P4:incremental() command:%s revision:%s", command, self.revision)
         yield self._dovccmd(command)
-
-    def finish(self, res):
-        d = defer.succeed(res)
-
-        @d.addCallback
-        def _gotResults(results):
-            self.setStatus(self.cmd, results)
-            return results
-        d.addCallback(self.finished)
-        return d
 
     def _getP4BaseForLog(self):
         return self.p4base or '<custom viewspec>'
@@ -230,6 +228,7 @@ class P4(Source):
         command.extend(doCommand)
         return command
 
+    @defer.inlineCallbacks
     def _dovccmd(self, command, collectStdout=False, initialStdin=None):
         command = self._buildVCCommand(command)
 
@@ -246,18 +245,15 @@ class P4(Source):
         if debug_logging:
             log.msg("Starting p4 command : p4 {}".format(" ".join(command)))
 
-        d = self.runCommand(cmd)
+        yield self.runCommand(cmd)
 
-        @d.addCallback
-        def evaluateCommand(_):
-            if cmd.rc != 0:
-                if debug_logging:
-                    log.msg("P4:_dovccmd():Source step failed while running command {}".format(cmd))
-                raise buildstep.BuildStepFailed()
-            if collectStdout:
-                return cmd.stdout
-            return cmd.rc
-        return d
+        if cmd.rc != 0:
+            if debug_logging:
+                log.msg("P4:_dovccmd():Source step failed while running command {}".format(cmd))
+            raise buildstep.BuildStepFailed()
+        if collectStdout:
+            return cmd.stdout
+        return cmd.rc
 
     def _getMethod(self):
         if self.method is not None and self.mode != 'incremental':
@@ -299,47 +295,51 @@ class P4(Source):
         else:
             client_spec += "LineEnd:\tlocal\n\n"
 
-        # Setup a view
-        client_spec += "View:\n"
-
-        def has_whitespace(*args):
-            return any([re.search(r'\s', i) for i in args if i is not None])
-
-        if self.p4viewspec:
-            # uses only p4viewspec array of tuples to build view
-            # If the user specifies a viewspec via an array of tuples then
-            # Ignore any specified p4base,p4branch, and/or p4extra_views
-            suffix = self.p4viewspec_suffix or ''
-            for k, v in self.p4viewspec:
-                if debug_logging:
-                    log.msg('P4:_createClientSpec():key:{} value:{}'.format(k, v))
-
-                qa = '"' if has_whitespace(k, suffix) else ''
-                qb = '"' if has_whitespace(self.p4client, v, suffix) else ''
-                client_spec += '\t{}{}{}{} {}//{}/{}{}{}\n'.format(qa, k, suffix, qa, qb,
-                                                                   self.p4client, v, suffix, qb)
+        # Perforce generates the view for stream-associated workspaces
+        if self.stream:
+            client_spec += "Stream:\t{}/{}\n".format(self.p4base, self.p4branch)
         else:
-            # Uses p4base, p4branch, p4extra_views
+            # Setup a view
+            client_spec += "View:\n"
 
-            qa = '"' if has_whitespace(self.p4base, self.p4branch) else ''
+            def has_whitespace(*args):
+                return any([re.search(r'\s', i) for i in args if i is not None])
 
-            client_spec += "\t{}{}".format(qa, self.p4base)
+            if self.p4viewspec:
+                # uses only p4viewspec array of tuples to build view
+                # If the user specifies a viewspec via an array of tuples then
+                # Ignore any specified p4base,p4branch, and/or p4extra_views
+                suffix = self.p4viewspec_suffix or ''
+                for k, v in self.p4viewspec:
+                    if debug_logging:
+                        log.msg('P4:_createClientSpec():key:{} value:{}'.format(k, v))
 
-            if self.p4branch:
-                client_spec += "/{}".format(self.p4branch)
+                    qa = '"' if has_whitespace(k, suffix) else ''
+                    qb = '"' if has_whitespace(self.p4client, v, suffix) else ''
+                    client_spec += '\t{}{}{}{} {}//{}/{}{}{}\n'.format(qa, k, suffix, qa, qb,
+                                                                       self.p4client, v, suffix, qb)
+            else:
+                # Uses p4base, p4branch, p4extra_views
 
-            client_spec += "/...{} ".format(qa)
+                qa = '"' if has_whitespace(self.p4base, self.p4branch) else ''
 
-            qb = '"' if has_whitespace(self.p4client) else ''
-            client_spec += "{}//{}/...{}\n".format(qb, self.p4client, qb)
+                client_spec += "\t{}{}".format(qa, self.p4base)
 
-            if self.p4extra_views:
-                for k, v in self.p4extra_views:
-                    qa = '"' if has_whitespace(k) else ''
-                    qb = '"' if has_whitespace(k, self.p4client, v) else ''
+                if self.p4branch:
+                    client_spec += "/{}".format(self.p4branch)
 
-                    client_spec += "\t{}{}/...{} {}//{}/{}/...{}\n".format(qa, k, qa, qb,
-                                                                           self.p4client, v, qb)
+                client_spec += "/...{} ".format(qa)
+
+                qb = '"' if has_whitespace(self.p4client) else ''
+                client_spec += "{}//{}/...{}\n".format(qb, self.p4client, qb)
+
+                if self.p4extra_views:
+                    for k, v in self.p4extra_views:
+                        qa = '"' if has_whitespace(k) else ''
+                        qb = '"' if has_whitespace(k, self.p4client, v) else ''
+
+                        client_spec += "\t{}{}/...{} {}//{}/{}/...{}\n".format(qa, k, qa, qb,
+                                                                               self.p4client, v, qb)
 
         if debug_logging:
             log.msg(client_spec)
@@ -349,7 +349,7 @@ class P4(Source):
         return mo and (mo.group(2) == 'saved.' or mo.group(2) == 'not changed.')
 
     @defer.inlineCallbacks
-    def _acquireTicket(self, _):
+    def _acquireTicket(self):
         if debug_logging:
             log.msg("P4:acquireTicket()")
 
@@ -357,7 +357,8 @@ class P4(Source):
         initialStdin = self.p4passwd + "\n"
         yield self._dovccmd(['login'], initialStdin=initialStdin)
 
-    def parseGotRevision(self, _):
+    @defer.inlineCallbacks
+    def parseGotRevision(self):
         command = self._buildVCCommand(['changes', '-m1', '#have'])
 
         cmd = buildstep.RemoteShellCommand(self.workdir, command,
@@ -366,54 +367,44 @@ class P4(Source):
                                            logEnviron=self.logEnviron,
                                            collectStdout=True)
         cmd.useLog(self.stdio_log, False)
-        d = self.runCommand(cmd)
+        yield self.runCommand(cmd)
 
-        @d.addCallback
-        def _setrev(_):
-            stdout = cmd.stdout.strip()
-            # Example output from p4 changes -m1 #have
-            # Change 212798 on 2012/04/13 by user@user-unix-bldng2 'change to
-            # pickup build'
-            revision = stdout.split()[1]
-            try:
-                int(revision)
-            except ValueError:
-                msg = (("p4.parseGotRevision unable to parse output "
-                        "of 'p4 changes -m1 \"#have\"': '{}'").format(stdout))
-                log.msg(msg)
-                raise buildstep.BuildStepFailed()
+        stdout = cmd.stdout.strip()
+        # Example output from p4 changes -m1 #have
+        # Change 212798 on 2012/04/13 by user@user-unix-bldng2 'change to
+        # pickup build'
+        revision = stdout.split()[1]
+        try:
+            int(revision)
+        except ValueError:
+            msg = (("p4.parseGotRevision unable to parse output "
+                    "of 'p4 changes -m1 \"#have\"': '{}'").format(stdout))
+            log.msg(msg)
+            raise buildstep.BuildStepFailed()
 
-            if debug_logging:
-                log.msg("Got p4 revision {}".format(revision))
-            self.updateSourceProperty('got_revision', revision)
-            return 0
-        return d
+        if debug_logging:
+            log.msg("Got p4 revision {}".format(revision))
+        self.updateSourceProperty('got_revision', revision)
 
+    @defer.inlineCallbacks
     def purge(self, ignore_ignores):
         """Delete everything that shown up on status."""
         command = ['sync', '#none']
         if ignore_ignores:
             command.append('--no-ignore')
-        d = self._dovccmd(command, collectStdout=True)
-
+        yield self._dovccmd(command, collectStdout=True)
+        # FIXME: do the following comments need addressing?
         # add deferred to rm tree
-
         # then add defer to sync to revision
-        return d
 
+    @defer.inlineCallbacks
     def checkP4(self):
         cmd = buildstep.RemoteShellCommand(self.workdir, ['p4', '-V'],
                                            env=self.env,
                                            logEnviron=self.logEnviron)
         cmd.useLog(self.stdio_log, False)
-        d = self.runCommand(cmd)
-
-        @d.addCallback
-        def evaluate(_):
-            if cmd.rc != 0:
-                return False
-            return True
-        return d
+        yield self.runCommand(cmd)
+        return cmd.rc == 0
 
     def computeSourceRevision(self, changes):
         if not changes or None in [c.revision for c in changes]:
